@@ -84,6 +84,23 @@ CGAL_LIB=$(find "$BUILD" -name 'liblibslic3r_cgal.a' | head -1)
 mkdir -p "$IOS_SYSROOT/include/libslic3r"
 cp -R "$PRUSA_SRC/src/libslic3r/." "$IOS_SYSROOT/include/libslic3r/"
 
+# Install slic3r-arrange and slic3r-arrange-wrapper (built as part of libslic3r)
+for arrange_lib in libslic3r-arrange.a libslic3r-arrange-wrapper.a; do
+    FOUND=$(find "$BUILD" -name "$arrange_lib" | head -1)
+    [ -n "$FOUND" ] && cp "$FOUND" "$IOS_SYSROOT/lib/$arrange_lib"
+done
+
+# Install bundled dep static libs built by libslic3r (admesh, miniz, etc.)
+for bundled_lib in libadmesh.a libminiz_static.a liblocalesutils.a \
+                   libsemver.a libglu-libtess.a libqoi.a libclipper.a; do
+    FOUND=$(find "$BUILD" -name "$bundled_lib" | head -1)
+    [ -n "$FOUND" ] && cp "$FOUND" "$IOS_SYSROOT/lib/$bundled_lib"
+done
+
+# Install cmake-generated libslic3r_version.h into sysroot
+VERSION_H=$(find "$BUILD" -name 'libslic3r_version.h' | head -1)
+[ -n "$VERSION_H" ] && cp "$VERSION_H" "$IOS_SYSROOT/include/libslic3r/libslic3r_version.h"
+
 log_ok "libslic3r installed"
 log_ok "  Library  → $IOS_SYSROOT/lib/libslic3r.a"
 log_ok "  Headers  → $IOS_SYSROOT/include/libslic3r/"

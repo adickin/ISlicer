@@ -58,9 +58,16 @@ run_step 11 "09b_gmp.sh"           "Build GMP (exact arithmetic, no assembly)"
 run_step 12 "09c_mpfr.sh"          "Build MPFR (multi-precision float)"
 run_step 13 "09d_cgal.sh"          "Install CGAL 5.6.2 headers + cmake config"
 
+# ── Serialization / geometry / compression ────────────────────────────────────
+run_step 14 "09e_cereal.sh"        "Install cereal (header-only serialization)"
+run_step 15 "09f_qhull.sh"         "Build Qhull (convex hull)"
+run_step 16 "09g_heatshrink.sh"    "Build heatshrink (compression)"
+run_step 17 "09h_libbgcode.sh"     "Build LibBGCode (Prusa binary gcode)"
+
 # ── libslic3r + packaging ─────────────────────────────────────────────────────
-run_step 14 "10_libslic3r.sh"      "Build libslic3r"
-run_step 15 "11_xcframework.sh"    "Package as XCFramework"
+run_step 18 "10_libslic3r.sh"      "Build libslic3r"
+run_step 19 "10b_install_stub_headers.sh" "Install stub headers (seq, nlopt, nanosvg, bundled deps)"
+run_step 20 "11_xcframework.sh"    "Package as XCFramework"
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

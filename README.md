@@ -4,6 +4,10 @@ An iOS on-device 3D printing slicer. Loads an STL, slices it using libslic3r (Pr
 
 No network calls. No cloud. Runs entirely on-device.
 
+## NOTE
+
+This entire project will be written by AI
+
 ## Architecture
 
 ```
@@ -23,9 +27,10 @@ The XCFramework packages `libslic3r.a` so Xcode can consume it. The C bridge (`s
 - macOS with Xcode 16+ installed (not just CLI tools — full Xcode)
 - Apple Silicon Mac recommended (builds target `SIMULATORARM64` by default)
 - Homebrew
-- `brew install cgal nlohmann-json` (header-only; needed before step 13)
 
 Everything else (cmake, ninja, xcodegen, …) is installed by step 00.
+CGAL 5.6.2 is downloaded from GitHub by step 13 — do **not** `brew install cgal`
+(Homebrew ships CGAL 6.x which has an incompatible API).
 
 ## Build
 
@@ -47,7 +52,7 @@ This runs 15 numbered steps in order. Each step is **idempotent** — re-running
 |---|--------|-------------|------|
 | 0 | `00_prerequisites.sh` | `brew install cmake ninja xcodegen …` | ~1 min |
 | 1 | `01_toolchain.sh` | Download `ios.toolchain.cmake` from leetal/ios-cmake | seconds |
-| 2 | `02_prusaslicer.sh` | `git clone` PrusaSlicer + submodules | ~5 min |
+| 2 | `02_prusaslicer.sh` | `git clone` PrusaSlicer + submodules + apply iOS patches | ~5 min |
 | 3 | `03_clipper2.sh` | Build Clipper2 — **toolchain smoke test** | ~1 min |
 | 4 | `04_eigen.sh` | Copy Eigen3 headers (no compilation) | ~1 min |
 | 5 | `05_zlib.sh` | Build zlib | ~1 min |
@@ -58,9 +63,14 @@ This runs 15 numbered steps in order. Each step is **idempotent** — re-running
 | 10 | `09_expat.sh` | Build libexpat | ~1 min |
 | 11 | `09b_gmp.sh` | Build GMP (pure-C, no assembly) for CGAL exact arithmetic | ~5 min |
 | 12 | `09c_mpfr.sh` | Build MPFR (multi-precision float) | ~3 min |
-| 13 | `09d_cgal.sh` | Install CGAL 5.6.2 headers + cmake config | seconds |
-| 14 | `10_libslic3r.sh` | Build libslic3r from full PrusaSlicer tree | ~10 min |
-| 15 | `11_xcframework.sh` | Package `libslic3r.a` as XCFramework | seconds |
+| 13 | `09d_cgal.sh` | Download + install CGAL 5.6.2 headers + cmake config | ~1 min |
+| 14 | `09e_cereal.sh` | Install cereal headers + cmake config | seconds |
+| 15 | `09f_qhull.sh` | Build Qhull (convex hull) | ~1 min |
+| 16 | `09g_heatshrink.sh` | Build heatshrink (compression, needed by LibBGCode) | ~1 min |
+| 17 | `09h_libbgcode.sh` | Build LibBGCode (Prusa binary gcode format) | ~2 min |
+| 18 | `10_libslic3r.sh` | Build libslic3r from full PrusaSlicer tree | ~10 min |
+| 19 | `10b_install_stub_headers.sh` | Install stub headers (seq, nlopt, nanosvg, bundled deps) | ~1 min |
+| 20 | `11_xcframework.sh` | Package `libslic3r.a` as XCFramework | seconds |
 
 All deps install into `~/ios-sysroot-sim/`. All source repos clone into `~/ios-sources/`.
 
@@ -132,12 +142,16 @@ Two small stub `.cpp` files are compiled instead of their JPEG/Z3-dependent orig
 ```
 IosSlicer/
 ├── README.md
-├── build.sh                          ← master build entry point (steps 0–15)
+├── build.sh                          ← master build entry point (steps 0–20)
+├── patches/
+│   ├── prusaslicer_ios.patch         ← CMakeLists changes (SLIC3R_IOS option)
+│   ├── ArrangeHelper_ios_stub.cpp    ← stub: no-op sequential arrange (no Z3)
+│   └── Thumbnails_ios_stub.cpp       ← stub: empty thumbnails (no JPEG)
 ├── scripts/
 │   ├── common.sh                     ← shared env vars + helpers
 │   ├── 00_prerequisites.sh
 │   ├── 01_toolchain.sh
-│   ├── 02_prusaslicer.sh
+│   ├── 02_prusaslicer.sh             ← clone + apply patches/
 │   ├── 03_clipper2.sh
 │   ├── 04_eigen.sh
 │   ├── 05_zlib.sh
@@ -148,8 +162,13 @@ IosSlicer/
 │   ├── 09_expat.sh
 │   ├── 09b_gmp.sh
 │   ├── 09c_mpfr.sh
-│   ├── 09d_cgal.sh
+│   ├── 09d_cgal.sh                   ← downloads CGAL 5.6.2 from GitHub
+│   ├── 09e_cereal.sh
+│   ├── 09f_qhull.sh
+│   ├── 09g_heatshrink.sh
+│   ├── 09h_libbgcode.sh
 │   ├── 10_libslic3r.sh
+│   ├── 10b_install_stub_headers.sh   ← seq stub, nlopt.h, nanosvg, bundled deps
 │   └── 11_xcframework.sh
 └── app/
     ├── project.yml                   ← xcodegen spec (links ~40 static libs)
