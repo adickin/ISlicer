@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bash /Users/adickin/work/IosSlicer/scripts/09c_mpfr.sh)",
+      "Bash(cp /tmp/nlopt-2.5.0/src/api/nlopt.h ~/ios-sysroot-sim/include/nlopt.h)",
+      "Read(//Users/adickin/ios-sysroot-sim/include/**)",
+      "Bash(rm -rf /Users/adickin/ios-sources/libslic3r-build-ios-sim)",
+      "Bash(bash /Users/adickin/work/IosSlicer/scripts/10_libslic3r.sh)",
+      "Bash(xargs -I{} basename {})",
+      "Bash(bash /Users/adickin/work/IosSlicer/scripts/11_xcframework.sh)",
+      "Bash(xcodegen)",
+      "Bash(xcodebuild -project IosSlicer.xcodeproj -scheme IosSlicer -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' -configuration Debug build)"
+    ]
+  }
+}
