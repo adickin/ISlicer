@@ -62,7 +62,8 @@ cmake -S "$PRUSA_SRC" -B "$BUILD" \
     2>&1 | tee "$IOS_SOURCES/libslic3r_cmake.log"
 
 log_step "Compiling libslic3r (this takes several minutes)..."
-cmake --build "$BUILD" -j"$NCPU" --target libslic3r \
+cmake --build "$BUILD" -j"$NCPU" \
+    --target libslic3r slic3r-arrange slic3r-arrange-wrapper \
     2>&1 | tee "$IOS_SOURCES/libslic3r_build.log" \
     | grep -E '(error:|warning: \[|Building|Linking|FAILED|\d+%)' || true
 
