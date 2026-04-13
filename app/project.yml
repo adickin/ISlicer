@@ -39,6 +39,7 @@ targets:
       - framework: libslic3r.xcframework
         embed: false    # static lib inside XCF — no embed needed
       - sdk: libc++.tbd
+      - sdk: SceneKit.framework
 
     # ── Build settings ──────────────────────────────────────────
     settings:

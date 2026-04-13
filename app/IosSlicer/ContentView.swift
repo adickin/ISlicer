@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
+import SceneKit
 
 // MARK: - State
 
@@ -26,9 +27,13 @@ struct ContentView: View {
     @State private var showFilePicker = false
     @State private var showErrorAlert = false
 
-    /// URL of the STL that has been copied to the temp directory (nil = use bundled cube).
+    /// URL of the STL that has been copied to the temp directory.
     @State private var loadedSTLURL: URL? = nil
-    @State private var loadedSTLName: String = "cube.stl"
+    @State private var loadedSTLName: String = "None"
+
+    /// SceneKit geometry for the 3D preview.
+    @State private var loadedSTLGeometry: SCNGeometry? = nil
+    @State private var isParsingSTL = false
 
     /// Retained while a slice is in progress; lets the cancel button reach slicer_cancel().
     @State private var activeHandle: SlicerHandle? = nil
@@ -82,27 +87,40 @@ struct ContentView: View {
 
     private var modelSection: some View {
         GroupBox("Model") {
-            HStack(spacing: 12) {
-                Image(systemName: "cube.fill")
-                    .font(.title2)
-                    .foregroundStyle(.blue)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(loadedSTLName).font(.headline)
-                    Text("Layer \(String(format: "%.1f", layerHeight)) mm · Infill \(infillPercent)%")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+            VStack(spacing: 8) {
+                // 3D viewer — always present so SceneKit's display link
+                // stays attached to the window (avoids black-on-first-render).
+                STLSceneView(geometry: loadedSTLGeometry)
+                    .frame(height: 280)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .overlay {
+                        if isParsingSTL {
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color(.systemGray6).opacity(0.7))
+                                .overlay { ProgressView("Loading…") }
+                        }
+                    }
+
+                // File info row
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(loadedSTLName).font(.headline)
+                        Text("Layer \(String(format: "%.1f", layerHeight)) mm · Infill \(infillPercent)%")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button {
+                        showFilePicker = true
+                    } label: {
+                        Label("Load STL", systemImage: "folder")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isBusy)
                 }
-                Spacer()
-                Button {
-                    showFilePicker = true
-                } label: {
-                    Label("Load STL", systemImage: "folder")
-                        .font(.caption)
-                }
-                .buttonStyle(.bordered)
-                .disabled(isBusy)
+                .padding(.vertical, 4)
             }
-            .padding(.vertical, 4)
         }
     }
 
@@ -202,11 +220,25 @@ struct ContentView: View {
             loadedSTLURL = dest
             loadedSTLName = url.lastPathComponent
             state = .idle
+            parseSTLPreview(url: dest)
         } catch {
             state = .failed(message: "Could not import STL: \(error.localizedDescription)")
             showErrorAlert = true
         }
     }
+
+    private func parseSTLPreview(url: URL) {
+        // Don't nil out geometry — keep the old model visible while the new one parses.
+        isParsingSTL = true
+        Task.detached(priority: .userInitiated) {
+            let geo = try? parseSTL(url: url)
+            await MainActor.run {
+                loadedSTLGeometry = geo
+                isParsingSTL = false
+            }
+        }
+    }
+
 
     // MARK: Slicing
 

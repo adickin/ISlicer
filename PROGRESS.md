@@ -6,9 +6,11 @@
 - [ ] **Device build** — `build_device.sh` in progress; `common.sh` now platform-aware; `project.yml` uses `$(IOS_SYSROOT)` with SDK conditionals; `11_xcframework.sh` creates dual slice when both sysroots exist
 
 ### Viewer
-- [ ] **SceneKit 3D viewer** — load + display the STL mesh with orbit/pan/zoom gestures
 - [ ] **Layer preview** — parse and visualize gcode layers (lines by extrusion type)
 - [ ] **Print time + filament estimate** — read from gcode comments after slicing
+- [ ] **Wireframe toggle** — overlay wire edges on the mesh
+- [ ] **Overhang highlight** — colour faces by angle to indicate support need
+- [ ] **Face normal colour mode** — shade by surface normal direction
 
 ### Slicing Settings
 - [ ] **Layer height picker** — 0.1 / 0.15 / 0.2 / 0.3 mm
@@ -34,6 +36,7 @@
 - [ ] **Auto-orient** — rotate to minimize support area
 - [ ] **Multi-model** — place and arrange multiple objects on the bed
 - [ ] **Cut tool** — slice model at a Z height (useful for models taller than the printer)
+- [ ] **Model placement UI** — move / rotate / scale model interactively in the 3D viewer
 
 ### Infrastructure
 - [ ] **Proper bundleId** — replace `com.yourname` placeholder in `project.yml`
@@ -97,4 +100,5 @@
 - [x] Slicing progress indicator — `Print::set_status_callback` → `ProgressView(value:)`
 - [x] Slicing cancellation — `slicer_cancel()` calls `Print::cancel()`; returns to idle cleanly
 - [x] Error UI — all failures shown via SwiftUI `.alert` modal
+- [x] **SceneKit 3D viewer** — `STLParser.swift` (binary + ASCII STL → `SCNGeometry`, flat normals, unit-box normalisation); `STLSceneView.swift` (`SCNView` with orbit-turntable camera control, print-bed grid, XYZ axis gizmo); mesh rotated −90° around X to convert STL Z-up to SceneKit Y-up (Cura convention: X=right/red, Y=forward/green, Z=up/blue); sample STLs copied to app Documents on first launch
 

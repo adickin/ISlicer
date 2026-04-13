@@ -9,7 +9,8 @@
       "Bash(xargs -I{} basename {})",
       "Bash(bash /Users/adickin/work/IosSlicer/scripts/11_xcframework.sh)",
       "Bash(xcodegen)",
-      "Bash(xcodebuild -project IosSlicer.xcodeproj -scheme IosSlicer -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' -configuration Debug build)"
+      "Bash(xcodebuild -project IosSlicer.xcodeproj -scheme IosSlicer -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' -configuration Debug build)",
+      "Read(//Users/adickin/ios-sources/libslic3r-build-ios-dev/**)"
     ]
   }
 }
