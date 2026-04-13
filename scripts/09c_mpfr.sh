@@ -24,14 +24,14 @@ if [ ! -d "$MPFR_SRC" ]; then
     tar xJf "mpfr-$MPFR_VER.tar.xz"
 fi
 
-SDK_PATH=$(xcrun --sdk iphonesimulator --show-sdk-path)
-IOS_CC=$(xcrun --sdk iphonesimulator -f clang)
-IOS_CXX=$(xcrun --sdk iphonesimulator -f clang++)
-TARGET_TRIPLE="arm64-apple-ios${DEPLOYMENT_TARGET}-simulator"
+SDK_PATH=$(xcrun --sdk "$IOS_SDK" --show-sdk-path)
+IOS_CC=$(xcrun --sdk "$IOS_SDK" -f clang)
+IOS_CXX=$(xcrun --sdk "$IOS_SDK" -f clang++)
+TARGET_TRIPLE="$IOS_TARGET_TRIPLE"
 CFLAGS="-arch arm64 -target $TARGET_TRIPLE -isysroot $SDK_PATH -O2"
 
-log_step "Configuring MPFR $MPFR_VER for iOS Simulator"
-BUILD_DIR="$IOS_SOURCES/mpfr-build-ios-sim"
+log_step "Configuring MPFR $MPFR_VER for $PLATFORM"
+BUILD_DIR="$IOS_SOURCES/mpfr-build-$BUILD_SUFFIX"
 mkdir -p "$BUILD_DIR"
 cd "$BUILD_DIR"
 

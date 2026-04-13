@@ -50,63 +50,68 @@ targets:
         CLANG_CXX_LANGUAGE_STANDARD: c++17
         CLANG_CXX_LIBRARY: libc++
 
-        # Search paths — point at our iOS sysroot
+        # Per-SDK sysroot — resolved by Xcode at build time.
+        # Simulator → ~/ios-sysroot-sim, Device → ~/ios-sysroot-dev
+        "IOS_SYSROOT[sdk=iphonesimulator*]": "$(HOME)/ios-sysroot-sim"
+        "IOS_SYSROOT[sdk=iphoneos*]": "$(HOME)/ios-sysroot-dev"
+
+        # Search paths — use $(IOS_SYSROOT) so they resolve per SDK
         HEADER_SEARCH_PATHS: >-
           $(inherited)
-          $(HOME)/ios-sysroot-sim/include
-          $(HOME)/ios-sysroot-sim/include/eigen3
-          $(HOME)/ios-sysroot-sim/include/LibBGCode
+          $(IOS_SYSROOT)/include
+          $(IOS_SYSROOT)/include/eigen3
+          $(IOS_SYSROOT)/include/LibBGCode
           $(HOME)/ios-sources/PrusaSlicer/src
           $(HOME)/ios-sources/PrusaSlicer/src/libslic3r
           $(HOME)/ios-sources/PrusaSlicer/bundled_deps
 
         LIBRARY_SEARCH_PATHS: >-
           $(inherited)
-          $(HOME)/ios-sysroot-sim/lib
+          $(IOS_SYSROOT)/lib
 
-        # Link all static deps explicitly.
+        # Link all static deps explicitly via $(IOS_SYSROOT).
         OTHER_LDFLAGS: >-
           $(inherited)
-          $(HOME)/ios-sysroot-sim/lib/libslic3r_cgal.a
-          $(HOME)/ios-sysroot-sim/lib/libslic3r-arrange.a
-          $(HOME)/ios-sysroot-sim/lib/libslic3r-arrange-wrapper.a
-          $(HOME)/ios-sysroot-sim/lib/libadmesh.a
-          $(HOME)/ios-sysroot-sim/lib/liblocalesutils.a
-          $(HOME)/ios-sysroot-sim/lib/libminiz_static.a
-          $(HOME)/ios-sysroot-sim/lib/libqoi.a
-          $(HOME)/ios-sysroot-sim/lib/libglu-libtess.a
-          $(HOME)/ios-sysroot-sim/lib/libsemver.a
-          $(HOME)/ios-sysroot-sim/lib/libclipper.a
-          $(HOME)/ios-sysroot-sim/lib/libClipper2.a
-          $(HOME)/ios-sysroot-sim/lib/libClipper2Z.a
-          $(HOME)/ios-sysroot-sim/lib/libbgcode_core.a
-          $(HOME)/ios-sysroot-sim/lib/libbgcode_binarize.a
-          $(HOME)/ios-sysroot-sim/lib/libbgcode_convert.a
-          $(HOME)/ios-sysroot-sim/lib/libheatshrink.a
-          $(HOME)/ios-sysroot-sim/lib/libheatshrink_dynalloc.a
-          $(HOME)/ios-sysroot-sim/lib/libqhullstatic_r.a
-          $(HOME)/ios-sysroot-sim/lib/libqhullcpp.a
-          $(HOME)/ios-sysroot-sim/lib/libmpfr.a
-          $(HOME)/ios-sysroot-sim/lib/libgmpxx.a
-          $(HOME)/ios-sysroot-sim/lib/libgmp.a
-          $(HOME)/ios-sysroot-sim/lib/libboost_atomic.a
-          $(HOME)/ios-sysroot-sim/lib/libboost_chrono.a
-          $(HOME)/ios-sysroot-sim/lib/libboost_date_time.a
-          $(HOME)/ios-sysroot-sim/lib/libboost_filesystem.a
-          $(HOME)/ios-sysroot-sim/lib/libboost_iostreams.a
-          $(HOME)/ios-sysroot-sim/lib/libboost_log.a
-          $(HOME)/ios-sysroot-sim/lib/libboost_log_setup.a
-          $(HOME)/ios-sysroot-sim/lib/libboost_nowide.a
-          $(HOME)/ios-sysroot-sim/lib/libboost_program_options.a
-          $(HOME)/ios-sysroot-sim/lib/libboost_regex.a
-          $(HOME)/ios-sysroot-sim/lib/libboost_system.a
-          $(HOME)/ios-sysroot-sim/lib/libboost_thread.a
-          $(HOME)/ios-sysroot-sim/lib/libboost_locale.a
-          $(HOME)/ios-sysroot-sim/lib/libtbb.a
-          $(HOME)/ios-sysroot-sim/lib/libtbbmalloc.a
-          $(HOME)/ios-sysroot-sim/lib/libexpat.a
-          $(HOME)/ios-sysroot-sim/lib/libpng.a
-          $(HOME)/ios-sysroot-sim/lib/libz.a
+          $(IOS_SYSROOT)/lib/libslic3r_cgal.a
+          $(IOS_SYSROOT)/lib/libslic3r-arrange.a
+          $(IOS_SYSROOT)/lib/libslic3r-arrange-wrapper.a
+          $(IOS_SYSROOT)/lib/libadmesh.a
+          $(IOS_SYSROOT)/lib/liblocalesutils.a
+          $(IOS_SYSROOT)/lib/libminiz_static.a
+          $(IOS_SYSROOT)/lib/libqoi.a
+          $(IOS_SYSROOT)/lib/libglu-libtess.a
+          $(IOS_SYSROOT)/lib/libsemver.a
+          $(IOS_SYSROOT)/lib/libclipper.a
+          $(IOS_SYSROOT)/lib/libClipper2.a
+          $(IOS_SYSROOT)/lib/libClipper2Z.a
+          $(IOS_SYSROOT)/lib/libbgcode_core.a
+          $(IOS_SYSROOT)/lib/libbgcode_binarize.a
+          $(IOS_SYSROOT)/lib/libbgcode_convert.a
+          $(IOS_SYSROOT)/lib/libheatshrink.a
+          $(IOS_SYSROOT)/lib/libheatshrink_dynalloc.a
+          $(IOS_SYSROOT)/lib/libqhullstatic_r.a
+          $(IOS_SYSROOT)/lib/libqhullcpp.a
+          $(IOS_SYSROOT)/lib/libmpfr.a
+          $(IOS_SYSROOT)/lib/libgmpxx.a
+          $(IOS_SYSROOT)/lib/libgmp.a
+          $(IOS_SYSROOT)/lib/libboost_atomic.a
+          $(IOS_SYSROOT)/lib/libboost_chrono.a
+          $(IOS_SYSROOT)/lib/libboost_date_time.a
+          $(IOS_SYSROOT)/lib/libboost_filesystem.a
+          $(IOS_SYSROOT)/lib/libboost_iostreams.a
+          $(IOS_SYSROOT)/lib/libboost_log.a
+          $(IOS_SYSROOT)/lib/libboost_log_setup.a
+          $(IOS_SYSROOT)/lib/libboost_nowide.a
+          $(IOS_SYSROOT)/lib/libboost_program_options.a
+          $(IOS_SYSROOT)/lib/libboost_regex.a
+          $(IOS_SYSROOT)/lib/libboost_system.a
+          $(IOS_SYSROOT)/lib/libboost_thread.a
+          $(IOS_SYSROOT)/lib/libboost_locale.a
+          $(IOS_SYSROOT)/lib/libtbb.a
+          $(IOS_SYSROOT)/lib/libtbbmalloc.a
+          $(IOS_SYSROOT)/lib/libexpat.a
+          $(IOS_SYSROOT)/lib/libpng.a
+          $(IOS_SYSROOT)/lib/libz.a
 
         # No bitcode (deprecated in Xcode 14+; required OFF for cross-compiled libs)
         ENABLE_BITCODE: NO

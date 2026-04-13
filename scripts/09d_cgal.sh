@@ -45,10 +45,14 @@ mkdir -p "$IOS_SYSROOT/include"
 # Merge them all into a single $IOS_SYSROOT/include/CGAL/.
 mkdir -p "$IOS_SYSROOT/include/CGAL"
 find "$CGAL_SRC" -type d -name "CGAL" | while read -r srcdir; do
-    # Skip build/binary dirs
+    # Skip build dirs and doc/doxygen stub dirs — those contain fake headers
+    # that would overwrite the real implementation headers.
     [[ "$srcdir" == *build* ]] && continue
-    rsync -a "$srcdir/" "$IOS_SYSROOT/include/CGAL/" 2>/dev/null || \
-        cp -Rn "$srcdir/." "$IOS_SYSROOT/include/CGAL/" 2>/dev/null || true
+    [[ "$srcdir" == */doc/* ]] && continue
+    [[ "$srcdir" == */test/* ]] && continue
+    [[ "$srcdir" == */examples/* ]] && continue
+    # Use cp -n (no-overwrite) so the first (real) header wins
+    cp -Rn "$srcdir/." "$IOS_SYSROOT/include/CGAL/" 2>/dev/null || true
 done
 
 # Write a hand-crafted CMake package config so that find_package(CGAL) works

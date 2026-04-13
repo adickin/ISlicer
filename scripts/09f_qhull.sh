@@ -11,7 +11,7 @@ already_done "$SENTINEL" && exit 0
 QHULL_SRC="$IOS_SOURCES/qhull"
 QHULL_VER="2020.2"  # tag 8.0.2
 WRAPPER_SRC="$IOS_SOURCES/qhull-ios-wrapper"
-BUILD="$WRAPPER_SRC/build"
+BUILD="$WRAPPER_SRC/build-$BUILD_SUFFIX"
 
 log_step "Building Qhull $QHULL_VER for iOS Simulator"
 

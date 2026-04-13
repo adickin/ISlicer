@@ -9,7 +9,7 @@ already_done "$SENTINEL" && exit 0
 log_step "Building libpng"
 
 SRC="$IOS_SOURCES/libpng"
-BUILD="$SRC/build-ios-sim"
+BUILD="$SRC/build-$BUILD_SUFFIX"
 
 if [ ! -d "$SRC/.git" ]; then
     git clone --depth=1 --branch v1.6.43 https://github.com/pnggroup/libpng.git "$SRC" \

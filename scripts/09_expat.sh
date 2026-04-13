@@ -9,7 +9,7 @@ already_done "$SENTINEL" && exit 0
 log_step "Building libexpat"
 
 SRC="$IOS_SOURCES/libexpat"
-BUILD="$SRC/expat/build-ios-sim"
+BUILD="$SRC/expat/build-$BUILD_SUFFIX"
 
 if [ ! -d "$SRC/.git" ]; then
     git clone --depth=1 --branch R_2_5_0 \

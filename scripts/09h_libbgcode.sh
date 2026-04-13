@@ -17,7 +17,7 @@ for dep in libheatshrink.a libz.a; do
 done
 
 LIBBGCODE_SRC="$IOS_SOURCES/libbgcode"
-BUILD="$LIBBGCODE_SRC/build-ios-sim"
+BUILD="$LIBBGCODE_SRC/build-$BUILD_SUFFIX"
 
 log_step "Cloning LibBGCode (Prusa binary gcode format)"
 if [ ! -d "$LIBBGCODE_SRC/.git" ]; then

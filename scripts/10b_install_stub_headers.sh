@@ -28,7 +28,7 @@ if [ ! -d "$PRUSA_SRC/.git" ]; then
     exit 1
 fi
 
-LIBSLIC3R_BUILD="$IOS_SOURCES/libslic3r-build-ios-sim"
+LIBSLIC3R_BUILD="$IOS_SOURCES/libslic3r-build-$BUILD_SUFFIX"
 
 log_step "Installing stub headers into sysroot"
 

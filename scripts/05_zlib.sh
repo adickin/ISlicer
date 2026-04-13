@@ -9,7 +9,7 @@ already_done "$SENTINEL" && exit 0
 log_step "Building zlib"
 
 SRC="$IOS_SOURCES/zlib"
-BUILD="$SRC/build-ios-sim"
+BUILD="$SRC/build-$BUILD_SUFFIX"
 
 if [ ! -d "$SRC/.git" ]; then
     git clone --depth=1 https://github.com/madler/zlib.git "$SRC"

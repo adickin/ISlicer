@@ -7,14 +7,31 @@ set -euo pipefail
 # ── Paths ────────────────────────────────────────────────────────────────────
 export PROJECT_ROOT="$HOME/work/IosSlicer"
 export IOS_SOURCES="$HOME/ios-sources"           # cloned repos live here
-export IOS_SYSROOT="$HOME/ios-sysroot-sim"       # installed deps for SIMULATORARM64
+export IOS_SYSROOT=""   # set below based on PLATFORM
 export IOS_TOOLCHAIN="$HOME/ios-toolchain/ios.toolchain.cmake"
 export PRUSA_SRC="$IOS_SOURCES/PrusaSlicer"
 
 # ── Build config ─────────────────────────────────────────────────────────────
-export PLATFORM="SIMULATORARM64"                  # Apple-Silicon simulator
+# PLATFORM can be overridden by the caller:
+#   PLATFORM=OS64 ./build.sh   →  real device (arm64-apple-ios)
+#   (default)                  →  simulator   (arm64-apple-ios-simulator)
+export PLATFORM="${PLATFORM:-SIMULATORARM64}"
 export DEPLOYMENT_TARGET="16.0"
 export NCPU=$(sysctl -n hw.ncpu)
+
+# Derive per-platform helpers from PLATFORM
+if [ "$PLATFORM" = "OS64" ]; then
+    export IOS_SYSROOT="$HOME/ios-sysroot-dev"
+    export IOS_SDK="iphoneos"
+    export IOS_TARGET_TRIPLE="arm64-apple-ios${DEPLOYMENT_TARGET}"
+    export BUILD_SUFFIX="ios-dev"
+else
+    export IOS_SYSROOT="$HOME/ios-sysroot-sim"
+    export IOS_SDK="iphonesimulator"
+    export IOS_TARGET_TRIPLE="arm64-apple-ios${DEPLOYMENT_TARGET}-simulator"
+    export BUILD_SUFFIX="ios-sim"
+fi
+
 export CMAKE_COMMON=(
   -G Ninja
   -DCMAKE_TOOLCHAIN_FILE="$IOS_TOOLCHAIN"

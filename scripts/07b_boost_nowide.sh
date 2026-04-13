@@ -9,7 +9,7 @@ SENTINEL="$IOS_SYSROOT/lib/libboost_nowide.a"
 already_done "$SENTINEL" && exit 0
 
 NOWIDE_SRC="$IOS_SOURCES/boost/libs/nowide"
-BUILD="$NOWIDE_SRC/build-ios-sim"
+BUILD="$NOWIDE_SRC/build-$BUILD_SUFFIX"
 
 if [ ! -f "$NOWIDE_SRC/CMakeLists.txt" ]; then
     log_error "Boost nowide source not found at $NOWIDE_SRC"

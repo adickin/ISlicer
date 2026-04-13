@@ -10,7 +10,7 @@ already_done "$SENTINEL" && exit 0
 
 HEATSHRINK_SRC="$IOS_SOURCES/heatshrink"
 WRAPPER_SRC="$IOS_SOURCES/heatshrink-ios-wrapper"
-BUILD="$WRAPPER_SRC/build"
+BUILD="$WRAPPER_SRC/build-$BUILD_SUFFIX"
 
 log_step "Building heatshrink for iOS Simulator"
 
@@ -82,6 +82,18 @@ if(NOT TARGET heatshrink::heatshrink)
 endif()
 set(heatshrink_FOUND TRUE)
 ENDCONFIG
+
+cat > "$IOS_SYSROOT/lib/cmake/heatshrink/heatshrinkConfigVersion.cmake" << 'ENDVER'
+set(PACKAGE_VERSION "0.4.1")
+if(PACKAGE_FIND_VERSION VERSION_LESS_EQUAL PACKAGE_VERSION)
+    set(PACKAGE_VERSION_COMPATIBLE TRUE)
+    if(PACKAGE_FIND_VERSION VERSION_EQUAL PACKAGE_VERSION)
+        set(PACKAGE_VERSION_EXACT TRUE)
+    endif()
+else()
+    set(PACKAGE_VERSION_COMPATIBLE FALSE)
+endif()
+ENDVER
 
 log_ok "heatshrink installed"
 log_ok "  libheatshrink.a         → $IOS_SYSROOT/lib/"

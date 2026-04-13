@@ -13,7 +13,7 @@ if [ ! -d "$PRUSA_SRC/.git" ]; then
 fi
 
 log_step "Building libslic3r"
-BUILD="$IOS_SOURCES/libslic3r-build-ios-sim"
+BUILD="$IOS_SOURCES/libslic3r-build-$BUILD_SUFFIX"
 mkdir -p "$BUILD"
 
 # Gather all Boost library paths for explicit passing

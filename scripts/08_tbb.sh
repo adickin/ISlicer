@@ -10,7 +10,7 @@ already_done "$SENTINEL" && exit 0
 log_step "Building oneTBB for iOS simulator"
 
 SRC="$IOS_SOURCES/oneTBB"
-BUILD="$SRC/build-ios-sim"
+BUILD="$SRC/build-$BUILD_SUFFIX"
 
 # Use v2021.9.0 — has stable iOS cmake support
 if [ ! -d "$SRC/.git" ]; then
@@ -34,7 +34,7 @@ cmake -S "$SRC" -B "$BUILD" \
     -DTBB_STRICT=OFF \
     -DTBB_DISABLE_IMPLICIT_TASK_ARENA_CREATION=ON \
     -DCMAKE_SYSTEM_NAME=iOS \
-    -DCMAKE_OSX_SYSROOT="$(xcrun --sdk iphonesimulator --show-sdk-path)" \
+    -DCMAKE_OSX_SYSROOT="$(xcrun --sdk "$IOS_SDK" --show-sdk-path)" \
     -DCMAKE_OSX_DEPLOYMENT_TARGET="$DEPLOYMENT_TARGET"
 
 cmake --build "$BUILD" -j"$NCPU" --target install

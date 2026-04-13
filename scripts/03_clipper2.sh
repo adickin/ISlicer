@@ -10,7 +10,7 @@ already_done "$SENTINEL" && exit 0
 log_step "Building Clipper2"
 
 SRC="$IOS_SOURCES/Clipper2"
-BUILD="$SRC/build-ios-sim"
+BUILD="$SRC/build-$BUILD_SUFFIX"
 
 if [ ! -d "$SRC/.git" ]; then
     git clone --depth=1 https://github.com/AngusJohnson/Clipper2.git "$SRC"

@@ -3,7 +3,7 @@
 ## To Do
 
 ### High Priority (v1 polish)
-- [ ] **Device build** — rebuild all deps with `PLATFORM=OS64` and add device slice to the XCFramework; currently simulator-only
+- [ ] **Device build** — `build_device.sh` in progress; `common.sh` now platform-aware; `project.yml` uses `$(IOS_SYSROOT)` with SDK conditionals; `11_xcframework.sh` creates dual slice when both sysroots exist
 
 ### Viewer
 - [ ] **SceneKit 3D viewer** — load + display the STL mesh with orbit/pan/zoom gestures
