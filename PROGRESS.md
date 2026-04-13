@@ -3,10 +3,6 @@
 ## To Do
 
 ### High Priority (v1 polish)
-- [ ] **Real STL file picker** — let the user load any STL from Files instead of the hardcoded cube
-- [ ] **Slicing progress indicator** — hook into `Print`'s status callbacks; show a progress bar so the UI doesn't appear frozen on large models
-- [ ] **Slicing cancellation** — cancel button that interrupts `print.process()`
-- [ ] **Error UI** — surface `slicer_last_error()` to the user as an alert instead of silently failing
 - [ ] **Device build** — rebuild all deps with `PLATFORM=OS64` and add device slice to the XCFramework; currently simulator-only
 
 ### Viewer
@@ -97,4 +93,8 @@
 - [x] Files app integration (`UIFileSharingEnabled`)
 - [x] Xcode project via xcodegen (`app/project.yml`)
 - [x] Confirmed: valid G-code produced on-device in iOS Simulator
+- [x] Real STL file picker — `UIDocumentPickerViewController`; file copied to temp dir before slicing
+- [x] Slicing progress indicator — `Print::set_status_callback` → `ProgressView(value:)`
+- [x] Slicing cancellation — `slicer_cancel()` calls `Print::cancel()`; returns to idle cleanly
+- [x] Error UI — all failures shown via SwiftUI `.alert` modal
 

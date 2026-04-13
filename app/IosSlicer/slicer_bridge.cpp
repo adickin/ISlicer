@@ -164,28 +164,9 @@ int slicer_load_stl(SlicerHandle handle, const char* path) {
 }
 
 int slicer_slice(SlicerHandle handle, float layer_height, int infill_percent) {
-    auto ctx = CTX(handle);
-    try {
-        // Override the per-slice parameters
-        ctx->config.set_key_value("layer_height",
-            new Slic3r::ConfigOptionFloat(static_cast<double>(layer_height)));
-        ctx->config.set_key_value("fill_density",
-            new Slic3r::ConfigOptionPercent(infill_percent));
-
-        ctx->print.clear();
-
-        // apply() may be:
-        //   ApplyStatus apply(const Model&, DynamicPrintConfig&&)   — newer
-        //   void        apply(const Model&, const DynamicPrintConfig&) — older
-        // We pass a copy to satisfy the move overload safely.
-        Slic3r::DynamicPrintConfig cfg_copy = ctx->config;
-        ctx->print.apply(ctx->model, std::move(cfg_copy));
-
-        ctx->print.process();
-        return 0;
-    } catch (const std::exception& e) {
-        return set_err(ctx, e);
-    }
+    return slicer_slice_with_progress(handle, layer_height, infill_percent,
+                                      /*progress_cb=*/nullptr,
+                                      /*user_ctx=*/nullptr);
 }
 
 int slicer_slice_with_progress(SlicerHandle handle,
@@ -194,11 +175,43 @@ int slicer_slice_with_progress(SlicerHandle handle,
                                void (*progress_cb)(float, void*),
                                void* user_ctx)
 {
-    // For the prototype this is identical to slicer_slice.
-    // A real implementation would hook into Print's status callbacks.
-    (void)progress_cb;
-    (void)user_ctx;
-    return slicer_slice(handle, layer_height, infill_percent);
+    auto ctx = CTX(handle);
+    try {
+        ctx->config.set_key_value("layer_height",
+            new Slic3r::ConfigOptionFloat(static_cast<double>(layer_height)));
+        ctx->config.set_key_value("fill_density",
+            new Slic3r::ConfigOptionPercent(infill_percent));
+
+        ctx->print.clear();
+        ctx->print.restart();  // clear any previous cancel flag
+
+        if (progress_cb) {
+            ctx->print.set_status_callback([=](const Slic3r::PrintBase::SlicingStatus& s) {
+                progress_cb(static_cast<float>(s.percent), user_ctx);
+            });
+        } else {
+            ctx->print.set_status_silent();
+        }
+
+        Slic3r::DynamicPrintConfig cfg_copy = ctx->config;
+        ctx->print.apply(ctx->model, std::move(cfg_copy));
+
+        ctx->print.process();
+
+        ctx->print.set_status_default();
+        return 0;
+    } catch (const Slic3r::CanceledException&) {
+        ctx->print.set_status_default();
+        ctx->last_error = "canceled";
+        return -2;  // distinct from general errors (-1)
+    } catch (const std::exception& e) {
+        ctx->print.set_status_default();
+        return set_err(ctx, e);
+    }
+}
+
+void slicer_cancel(SlicerHandle handle) {
+    CTX(handle)->print.cancel();
 }
 
 int slicer_export_gcode(SlicerHandle handle, const char* output_path) {

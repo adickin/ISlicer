@@ -38,6 +38,11 @@ int slicer_slice_with_progress(SlicerHandle handle,
 // Returns 0 on success, negative on error.
 int slicer_export_gcode(SlicerHandle handle, const char* output_path);
 
+// Cancel an in-progress slice. Safe to call from any thread while
+// slicer_slice / slicer_slice_with_progress is running.
+// The canceled flag is cleared automatically at the start of the next slice.
+void slicer_cancel(SlicerHandle handle);
+
 // Returns a human-readable error string for the last failed call.
 // Valid until the next call on the same handle.
 const char* slicer_last_error(SlicerHandle handle);
