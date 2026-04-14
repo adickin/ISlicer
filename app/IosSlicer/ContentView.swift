@@ -33,6 +33,7 @@ struct ContentView: View {
     @State private var showSliceProfilePicker = false
     @State private var showNoProfileAlert = false
     @State private var showNoSliceProfileAlert = false
+    @State private var isPanelExpanded = true
 
     /// URL of the STL that has been copied to the temp directory.
     @State private var loadedSTLURL: URL? = nil
@@ -51,15 +52,22 @@ struct ContentView: View {
     }
 
     var body: some View {
-        VStack(spacing: 24) {
-            headerSection
-            Divider()
-            modelSection
-            statusSection
-            Spacer()
-            actionButtons
+        ZStack(alignment: .bottom) {
+            // Full-screen 3D viewer
+            STLSceneView(geometry: loadedSTLGeometry)
+                .ignoresSafeArea()
+                .overlay {
+                    if isParsingSTL {
+                        Color(.systemGray6).opacity(0.7)
+                            .ignoresSafeArea()
+                            .overlay { ProgressView("Loading…") }
+                    }
+                }
+
+            // Bottom panel
+            bottomPanel
         }
-        .padding(24)
+        .ignoresSafeArea(edges: .top)
         .sheet(isPresented: $showFilePicker) {
             DocumentPickerView { url in
                 importSTL(from: url)
@@ -95,38 +103,106 @@ struct ContentView: View {
         }
     }
 
-    // MARK: Sub-views
+    // MARK: - Bottom Panel
 
-    private var headerSection: some View {
-        VStack(spacing: 6) {
-            Text("IosSlicer")
-                .font(.largeTitle.bold())
-            Text("On-device 3D Printing Slicer")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+    private var bottomPanel: some View {
+        VStack(spacing: 0) {
+            // Drag handle + collapse/expand button
+            Button {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                    isPanelExpanded.toggle()
+                }
+            } label: {
+                VStack(spacing: 4) {
+                    Capsule()
+                        .fill(Color(.systemGray3))
+                        .frame(width: 36, height: 4)
+                    Image(systemName: isPanelExpanded ? "chevron.down" : "chevron.up")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+            }
+            .buttonStyle(.plain)
+
+            if isPanelExpanded {
+                expandedPanelContent
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            } else {
+                collapsedPanelContent
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .padding(.horizontal, 0)
+        .shadow(color: .black.opacity(0.15), radius: 12, y: -4)
+    }
+
+    // Collapsed: one-line summary + slice button
+    private var collapsedPanelContent: some View {
+        HStack(spacing: 12) {
+            statusIcon
+                .scaleEffect(0.9)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(loadedSTLName)
+                    .font(.subheadline.weight(.medium))
+                    .lineLimit(1)
+                Text(collapsedSubtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            if isBusy {
+                Button(role: .destructive) {
+                    if let h = activeHandle { slicer_cancel(h) }
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .imageScale(.large)
+                }
+                .buttonStyle(.plain)
+            } else {
+                Button {
+                    Task.detached(priority: .userInitiated) { await runSlice() }
+                } label: {
+                    Label("Slice", systemImage: "slider.horizontal.3")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .disabled(isBusy)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 28)
+    }
+
+    private var collapsedSubtitle: String {
+        switch state {
+        case .idle:
+            return profileStore.selectedProfile?.name ?? "No printer selected"
+        case .slicing(let phase, _):
+            return phase
+        case .done:
+            return "Done"
+        case .failed:
+            return "Error — tap to expand"
         }
     }
 
-    private var modelSection: some View {
-        GroupBox("Model") {
-            VStack(spacing: 8) {
-                // 3D viewer — always present so SceneKit's display link
-                // stays attached to the window (avoids black-on-first-render).
-                STLSceneView(geometry: loadedSTLGeometry)
-                    .frame(height: 280)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .overlay {
-                        if isParsingSTL {
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color(.systemGray6).opacity(0.7))
-                                .overlay { ProgressView("Loading…") }
-                        }
-                    }
-
-                // File info row
+    // Expanded: full controls
+    private var expandedPanelContent: some View {
+        VStack(spacing: 0) {
+            VStack(spacing: 16) {
+                // File row
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(loadedSTLName).font(.headline)
+                        Text(loadedSTLName)
+                            .font(.headline)
                         if let sp = sliceProfileStore.selectedProfile {
                             Text(sp.pickerSubtitle)
                                 .font(.caption)
@@ -147,7 +223,6 @@ struct ContentView: View {
                     .buttonStyle(.bordered)
                     .disabled(isBusy)
                 }
-                .padding(.vertical, 4)
 
                 Divider()
 
@@ -160,7 +235,7 @@ struct ContentView: View {
                             profileStore.selectedProfile?.name ?? "No Printer Selected",
                             systemImage: "printer"
                         )
-                        .font(.caption)
+                        .font(.subheadline)
                         .foregroundStyle(profileStore.selectedProfile == nil ? .red : .primary)
                         Spacer()
                         Image(systemName: "chevron.right")
@@ -179,7 +254,7 @@ struct ContentView: View {
                             sliceProfileStore.selectedProfile?.name ?? "No Slice Profile Selected",
                             systemImage: "slider.horizontal.3"
                         )
-                        .font(.caption)
+                        .font(.subheadline)
                         .foregroundStyle(sliceProfileStore.selectedProfile == nil ? .red : .primary)
                         Spacer()
                         Image(systemName: "chevron.right")
@@ -188,29 +263,37 @@ struct ContentView: View {
                     }
                 }
                 .disabled(isBusy)
-            }
-        }
-    }
 
-    private var statusSection: some View {
-        GroupBox("Status") {
-            VStack(alignment: .leading, spacing: 8) {
+                Divider()
+
+                // Status row
                 HStack(spacing: 12) {
                     statusIcon
                     Text(statusMessage)
-                        .font(.body)
+                        .font(.subheadline)
                         .multilineTextAlignment(.leading)
                     Spacer()
                 }
-                .padding(.vertical, 4)
 
                 if case .slicing(_, let p) = state {
                     ProgressView(value: p)
                         .animation(.linear(duration: 0.15), value: p)
                 }
+
+                Divider()
+
+                // Action buttons
+                actionButtons
             }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 8)
+
+            // Safe area spacer
+            Color.clear.frame(height: 20)
         }
     }
+
+    // MARK: Sub-views
 
     @ViewBuilder
     private var statusIcon: some View {

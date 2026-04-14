@@ -62,7 +62,7 @@ struct STLSceneView: UIViewRepresentable {
         camera.fieldOfView = 45
         let cameraNode = SCNNode()
         cameraNode.camera = camera
-        cameraNode.position = SCNVector3(1.2, 0.9, 1.6)
+        cameraNode.position = SCNVector3(2.4, 1.6, 3.2)
         cameraNode.look(at: SCNVector3(0, 0, 0))
         scene.rootNode.addChildNode(cameraNode)
         scnView.pointOfView = cameraNode
@@ -74,14 +74,43 @@ struct STLSceneView: UIViewRepresentable {
     func updateUIView(_ scnView: SCNView, context: Context) {
         guard context.coordinator.lastGeometry !== geometry else { return }
         context.coordinator.lastGeometry = geometry
-        context.coordinator.meshNode?.geometry = geometry
 
-        if geometry != nil, let cam = context.coordinator.cameraNode {
-            cam.position = SCNVector3(1.2, 0.9, 1.6)
-            cam.look(at: SCNVector3(0, 0, 0))
-            scnView.pointOfView = cam
-            scnView.defaultCameraController.target = SCNVector3(0, 0, 0)
-        }
+        guard let meshNode = context.coordinator.meshNode,
+              let cam = context.coordinator.cameraNode else { return }
+
+        meshNode.geometry = geometry
+
+        guard let geo = geometry else { return }
+
+        // The meshNode has eulerAngles = (-π/2, 0, 0), mapping STL axes to SceneKit:
+        //   world.x =  local.x + pos.x
+        //   world.y =  local.z + pos.y   ← STL Z (up) → SceneKit Y
+        //   world.z = -local.y + pos.z   ← STL Y (forward) → SceneKit -Z
+        //
+        // We want:
+        //   • Bottom of model at world Y = 0  → pos.y = -minBound.z
+        //   • Model centered at world X = 0   → pos.x = -(minBound.x + maxBound.x) / 2
+        //   • Model centered at world Z = 0   → pos.z =  (minBound.y + maxBound.y) / 2
+
+        let (minB, maxB) = geo.boundingBox
+        meshNode.position = SCNVector3(
+            -(minB.x + maxB.x) / 2,
+            -minB.z,
+             (minB.y + maxB.y) / 2
+        )
+
+        // World-space center and size of the positioned model
+        let modelHeight  = maxB.z - minB.z
+        let modelExtentX = maxB.x - minB.x
+        let modelExtentY = maxB.y - minB.y
+        let maxExtent    = max(modelExtentX, modelExtentY, modelHeight)
+        let lookAt       = SCNVector3(0, modelHeight / 2, 0)
+        let dist         = max(maxExtent * 2.0, 0.8)
+
+        cam.position = SCNVector3(dist * 0.75, modelHeight / 2 + dist * 0.5, dist)
+        cam.look(at: lookAt)
+        scnView.pointOfView = cam
+        scnView.defaultCameraController.target = lookAt
     }
 }
 

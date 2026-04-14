@@ -15,7 +15,9 @@
       "Read(//Users/adickin/ios-sysroot-dev/lib/**)",
       "Read(//Users/adickin/ios-sysroot-sim/lib/**)",
       "Bash(xcodebuild -project IosSlicer.xcodeproj -scheme IosSlicer -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 16' -configuration Debug build)",
-      "Bash(xcodebuild -project app/IosSlicer.xcodeproj -scheme IosSlicer -destination 'platform=iOS Simulator,id=596E7FFB-9709-4A81-B5D5-500A9B558CB2' -configuration Debug build)"
+      "Bash(xcodebuild -project app/IosSlicer.xcodeproj -scheme IosSlicer -destination 'platform=iOS Simulator,id=596E7FFB-9709-4A81-B5D5-500A9B558CB2' -configuration Debug build)",
+      "Bash(xcrun simctl:*)",
+      "Bash(xcodebuild -project IosSlicer.xcodeproj -scheme IosSlicer -destination 'id=596E7FFB-9709-4A81-B5D5-500A9B558CB2' -configuration Debug build)"
     ]
   }
 }
