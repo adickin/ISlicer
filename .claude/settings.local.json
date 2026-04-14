@@ -10,7 +10,11 @@
       "Bash(bash /Users/adickin/work/IosSlicer/scripts/11_xcframework.sh)",
       "Bash(xcodegen)",
       "Bash(xcodebuild -project IosSlicer.xcodeproj -scheme IosSlicer -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' -configuration Debug build)",
-      "Read(//Users/adickin/ios-sources/libslic3r-build-ios-dev/**)"
+      "Read(//Users/adickin/ios-sources/libslic3r-build-ios-dev/**)",
+      "Bash(ls /Users/adickin/work/IosSlicer/app/IosSlicer/*.swift)",
+      "Read(//Users/adickin/ios-sysroot-dev/lib/**)",
+      "Read(//Users/adickin/ios-sysroot-sim/lib/**)",
+      "Bash(xcodebuild -project IosSlicer.xcodeproj -scheme IosSlicer -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 16' -configuration Debug build)"
     ]
   }
 }

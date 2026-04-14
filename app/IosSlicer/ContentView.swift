@@ -22,10 +22,14 @@ private final class ProgressRelay: @unchecked Sendable {
 // MARK: - ContentView
 
 struct ContentView: View {
+    @EnvironmentObject var profileStore: ProfileStore
+
     @State private var state: SliceState = .idle
     @State private var showShareSheet = false
     @State private var showFilePicker = false
     @State private var showErrorAlert = false
+    @State private var showProfilePicker = false
+    @State private var showNoProfileAlert = false
 
     /// URL of the STL that has been copied to the temp directory.
     @State private var loadedSTLURL: URL? = nil
@@ -66,10 +70,19 @@ struct ContentView: View {
                 ShareSheetView(items: [url]).ignoresSafeArea()
             }
         }
+        .sheet(isPresented: $showProfilePicker) {
+            ProfilePickerView()
+        }
         .alert("Slicing Error", isPresented: $showErrorAlert) {
             Button("OK", role: .cancel) {}
         } message: {
             if case .failed(let msg) = state { Text(msg) }
+        }
+        .alert("No Printer Selected", isPresented: $showNoProfileAlert) {
+            Button("Choose Printer") { showProfilePicker = true }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Please select a printer profile before slicing.")
         }
     }
 
@@ -120,6 +133,27 @@ struct ContentView: View {
                     .disabled(isBusy)
                 }
                 .padding(.vertical, 4)
+
+                Divider()
+
+                // Printer profile row
+                Button {
+                    showProfilePicker = true
+                } label: {
+                    HStack {
+                        Label(
+                            profileStore.selectedProfile?.name ?? "No Printer Selected",
+                            systemImage: "printer"
+                        )
+                        .font(.caption)
+                        .foregroundStyle(profileStore.selectedProfile == nil ? .red : .primary)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .disabled(isBusy)
             }
         }
     }
@@ -239,7 +273,6 @@ struct ContentView: View {
         }
     }
 
-
     // MARK: Slicing
 
     private func setPhase(_ msg: String, progress: Double = 0) async {
@@ -247,6 +280,12 @@ struct ContentView: View {
     }
 
     private func runSlice() async {
+        // 0. Require a printer profile
+        guard let profile = await MainActor.run(body: { profileStore.selectedProfile }) else {
+            await MainActor.run { showNoProfileAlert = true }
+            return
+        }
+
         // 1. Resolve STL path
         let stlPath: String
         if let url = await MainActor.run(body: { loadedSTLURL }) {
@@ -276,7 +315,15 @@ struct ContentView: View {
             Task { @MainActor in activeHandle = nil }
         }
 
-        // 4. Load STL
+        // 4. Apply printer profile
+        await setPhase("Applying printer profile…")
+        if !applyPrinterProfile(profile, to: handle) {
+            let msg = String(cString: slicer_last_error(handle))
+            await MainActor.run { state = .failed(message: msg) ; showErrorAlert = true }
+            return
+        }
+
+        // 5. Load STL
         await setPhase("Loading \(URL(fileURLWithPath: stlPath).lastPathComponent)…")
         if slicer_load_stl(handle, stlPath) != 0 {
             let msg = String(cString: slicer_last_error(handle))
@@ -284,12 +331,11 @@ struct ContentView: View {
             return
         }
 
-        // 5. Slice with progress
+        // 6. Slice with progress
         await setPhase("Slicing at \(String(format: "%.1f", layerHeight)) mm / \(infillPercent)% infill…")
 
         let relay = ProgressRelay()
         relay.handler = { pct in
-            // Called on the slicer's worker thread; hop to MainActor for state update.
             Task { @MainActor in
                 if case .slicing(let phase, _) = state {
                     state = .slicing(phase: phase, progress: Double(pct) / 100.0)
@@ -312,7 +358,7 @@ struct ContentView: View {
             let msg = String(cString: slicer_last_error(handle))
             await MainActor.run {
                 if msg == "canceled" {
-                    state = .idle   // user-initiated cancel — not an error
+                    state = .idle
                 } else {
                     state = .failed(message: msg)
                     showErrorAlert = true
@@ -321,7 +367,7 @@ struct ContentView: View {
             return
         }
 
-        // 6. Export G-code
+        // 7. Export G-code
         await setPhase("Exporting G-code…", progress: 0.95)
         if slicer_export_gcode(handle, gcodeURL.path) != 0 {
             let msg = String(cString: slicer_last_error(handle))
@@ -330,6 +376,38 @@ struct ContentView: View {
         }
 
         await MainActor.run { state = .done(gcodeURL: gcodeURL) }
+    }
+
+    // MARK: Profile → C bridge
+
+    private func applyPrinterProfile(_ profile: PrinterProfile, to handle: SlicerHandle) -> Bool {
+        let nozzle = Float(profile.extruders.first?.nozzleDiameter ?? 0.4)
+        let filament = Float(profile.extruders.first?.compatibleMaterialDiameters.first ?? 1.75)
+
+        // withCString keeps the C strings alive for the duration of the nested closures.
+        return profile.startGCode.withCString { startPtr in
+            profile.endGCode.withCString { endPtr in
+                var cfg = SlicerPrinterConfig()
+                cfg.bed_x = Float(profile.bedX)
+                cfg.bed_y = Float(profile.bedY)
+                cfg.bed_z = Float(profile.bedZ)
+                cfg.origin_at_center = profile.originAtCenter ? 1 : 0
+                cfg.heated_bed = profile.heatedBed ? 1 : 0
+                cfg.gcode_flavor = profile.gcodeFlavor.bridgeInt
+                cfg.start_gcode = startPtr
+                cfg.end_gcode = endPtr
+                cfg.printhead_x_min = Float(profile.printheadXMin)
+                cfg.printhead_y_min = Float(profile.printheadYMin)
+                cfg.printhead_x_max = Float(profile.printheadXMax)
+                cfg.printhead_y_max = Float(profile.printheadYMax)
+                cfg.gantry_height = Float(profile.gantryHeight)
+                cfg.extruder_count = Int32(profile.numberOfExtruders)
+                cfg.apply_extruder_offsets = profile.applyExtruderOffsetsToGCode ? 1 : 0
+                cfg.nozzle_diameter = nozzle
+                cfg.filament_diameter = filament
+                return slicer_apply_printer_config(handle, &cfg) == 0
+            }
+        }
     }
 }
 
@@ -341,7 +419,6 @@ struct DocumentPickerView: UIViewControllerRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(onPick: onPick) }
 
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        // UTType(filenameExtension:conformingTo:) always returns non-nil for a known conformance.
         let stlType = UTType(filenameExtension: "stl", conformingTo: .data) ?? UTType.data
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: [stlType, UTType.data])
         picker.allowsMultipleSelection = false
@@ -378,4 +455,5 @@ struct ShareSheetView: UIViewControllerRepresentable {
 
 #Preview {
     ContentView()
+        .environmentObject(ProfileStore())
 }

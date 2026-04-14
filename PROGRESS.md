@@ -12,23 +12,71 @@
 - [ ] **Overhang highlight** — colour faces by angle to indicate support need
 - [ ] **Face normal colour mode** — shade by surface normal direction
 
-### Slicing Settings
-- [ ] **Layer height picker** — 0.1 / 0.15 / 0.2 / 0.3 mm
-- [ ] **Infill density slider** — 5–100%
-- [ ] **Infill pattern picker** — gyroid, grid, honeycomb, lines
-- [ ] **Support structures toggle** — on/off; auto vs. manual placement
-- [ ] **Brim / skirt / raft** — adhesion options
+### Slicing Profiles
+Plan: `Plans/slicing_profiles.md`
+
+**Data model + persistence**
+- [ ] `InfillPattern` enum — gyroid, grid, honeycomb, lines, triangles, cubic, adaptive cubic, lightning (with `bridgeInt` mapping to PrusaSlicer's `InfillPattern` enum)
+- [ ] `SupportStyle` enum — Normal (Snug) / Tree (Auto)
+- [ ] `SupportPlacement` enum — Everywhere / Touching Build Plate Only
+- [ ] `BrimType` enum — None / Outer Only / Inner Only / Outer and Inner (with `bridgeInt`)
+- [ ] `SliceProfile` struct — all settings below, Codable
+- [ ] `SliceProfileStore` — `@MainActor ObservableObject`; JSON load/save; seed version bump
+- [ ] `BuiltInSliceProfiles` — Draft (0.3 mm), Standard (0.2 mm), Fine (0.1 mm)
+
+**Settings covered by SliceProfile:**
+- Layer height, first layer height
+- Wall count (perimeters), horizontal expansion (xy_size_compensation)
+- Top/bottom layers, min top/bottom thickness
+- Infill density (%), infill pattern
+- Speed: print (perimeter), infill, travel, first layer
+- Support: generate, style, placement, overhang angle, horizontal expansion, use towers
+- Build plate adhesion: None / Skirt (loops + distance) / Brim (type + width) / Raft (layers)
+
+**C bridge**
+- [ ] `SlicerSliceConfig` C struct + `slicer_apply_slice_config()` in `slicer_bridge.h/.cpp`
+- [ ] Refactor bridge config accumulation — merge printer + slice configs before `print.apply()`
+
+**UI**
+- [ ] `SliceProfileEditorView` — Form with Layers / Walls / Top-Bottom / Infill / Speed / Support / Adhesion sections
+- [ ] `SliceProfilePickerView` — list with summary subtitle (layer height · infill % · speed · supports on/off)
+- [ ] `ContentView` — "Profile: [Name]" row, calls `slicer_apply_slice_config` before slicing
+- [ ] `IosSlicerApp` — `SliceProfileStore` as second `@StateObject`, injected as `.environmentObject`
 
 ### Printer Profiles
-- [ ] **Profile model** — bed size, nozzle diameter, max height, start/end gcode
-- [ ] **Built-in profiles** — Prusa MK4, Bambu X1, Ender 3, Voron 2.4
-- [ ] **Custom profile editor**
-- [ ] **Profile persistence** — save/load from app Documents
+- [ ] **Additional built-in profiles** — Prusa MK4, Bambu X1C, Voron 2.4
+- [ ] **Multi-extruder bridge** — `SlicerPrinterConfig` currently only passes extruder 0; extend to pass per-extruder arrays for nozzle/filament diameter and offsets
+- [ ] **Reset profile to default** — "Reset to built-in defaults" button in profile editor for built-in profiles
 
 ### Material Profiles
-- [ ] **Material model** — temps (hotend + bed), retraction, fan curve, flow rate, name
-- [ ] **Built-in materials** — PLA, PETG, ABS, TPU
-- [ ] **Custom material editor**
+*Retraction, Z-hop, and cooling/fan settings live here — not in slice profiles — because they are material-dependent (PrusaSlicer filament profile architecture).*
+
+**Data model + persistence**
+- [ ] `MaterialProfile` struct — Codable; maps to PrusaSlicer filament config keys
+  - Name, filament diameter (mm)
+  - Hotend temperature — first layer + other layers (`first_layer_temperature`, `temperature`)
+  - Bed temperature — first layer + other layers (`first_layer_bed_temperature`, `bed_temperature`)
+  - Flow rate / extrusion multiplier (%; `extrusion_multiplier`)
+  - Enable retraction (`retract_length > 0` gate in bridge)
+  - Retraction length (mm; `retract_length`)
+  - Retraction speed (mm/s; `retract_speed`)
+  - Z-hop when retracted (mm; `retract_lift`)
+  - Min travel before retraction (mm; `retract_before_travel`)
+  - Enable cooling (`cooling`)
+  - Min fan speed (%; `min_fan_speed`)
+  - Max fan speed (%; `max_fan_speed`)
+  - Bridge fan speed (%; `bridge_fan_speed`)
+  - Disable fan for first N layers (`disable_fan_first_layers`)
+- [ ] `MaterialProfileStore` — same pattern as `ProfileStore` / `SliceProfileStore`
+- [ ] `BuiltInMaterialProfiles` — PLA, PETG, ABS, TPU with sensible defaults
+
+**C bridge**
+- [ ] `SlicerMaterialConfig` C struct + `slicer_apply_material_config()` in `slicer_bridge.h/.cpp`
+
+**UI**
+- [ ] `MaterialProfileEditorView` — Form with Temperatures / Retraction / Cooling sections
+- [ ] `MaterialProfilePickerView` — list with summary subtitle (name · temp · retraction on/off)
+- [ ] `ContentView` — "Material: [Name]" row, calls `slicer_apply_material_config` before slicing
 
 ### Model Manipulation
 - [ ] **Rotation** — 3-axis rotate with snap-to-face
@@ -52,6 +100,20 @@
 
 
 ## Completed
+
+### Printer Profiles (2026-04-13)
+- [x] `GCodeFlavor` enum — 12 flavors with `bridgeInt` mapping to PrusaSlicer's `GCodeFlavor` enum order
+- [x] `BuildPlateShape` — rectangular / circular
+- [x] `ExtruderProfile` — nozzle diameter, material diameters, X/Y offset, fan number, change duration, per-extruder start/end gcode
+- [x] `PrinterProfile` — full machine + printhead + extruder settings, Codable
+- [x] `BuiltInProfiles` — Ender 3 S1 seeded with correct PrusaSlicer placeholder syntax (`{first_layer_temperature[0]}` etc.; `{machine_depth}` hardcoded to 220 — no PrusaSlicer equivalent)
+- [x] `ProfileStore` — `@MainActor ObservableObject`; JSON load/save; seed version bump forces re-seed when built-in profiles change
+- [x] `GCodeEditorView` — reusable bordered monospaced TextEditor with copy button
+- [x] `PrinterProfileEditorView` — Form with Name / Machine / G-Code / Printhead / per-Extruder sections
+- [x] `ProfilePickerView` — list with circle-checkmark select, row-tap to edit, swipe-to-delete, + button
+- [x] `slicer_bridge` — `SlicerPrinterConfig` C struct + `slicer_apply_printer_config()`; `kFlavorMap[]` keeps Swift `bridgeInt` and C++ enum in sync
+- [x] `ContentView` — profile row shows active printer name; "No Printer Selected" alert guards slice; `applyPrinterProfile()` called before every slice
+- [x] `IosSlicerApp` — `ProfileStore` created as `@StateObject`, injected as `.environmentObject`, loaded via `.task`
 
 ### Build Chain
 - [x] iOS CMake toolchain (leetal/ios-cmake, SIMULATORARM64)
@@ -101,4 +163,3 @@
 - [x] Slicing cancellation — `slicer_cancel()` calls `Print::cancel()`; returns to idle cleanly
 - [x] Error UI — all failures shown via SwiftUI `.alert` modal
 - [x] **SceneKit 3D viewer** — `STLParser.swift` (binary + ASCII STL → `SCNGeometry`, flat normals, unit-box normalisation); `STLSceneView.swift` (`SCNView` with orbit-turntable camera control, print-bed grid, XYZ axis gizmo); mesh rotated −90° around X to convert STL Z-up to SceneKit Y-up (Cura convention: X=right/red, Y=forward/green, Z=up/blue); sample STLs copied to app Documents on first launch
-

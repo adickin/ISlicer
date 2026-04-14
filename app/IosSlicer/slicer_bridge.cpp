@@ -29,6 +29,12 @@ struct SlicerContext {
     Slic3r::DynamicPrintConfig config;
     std::string                last_error;
 
+    // Printer dimensions — updated by slicer_apply_printer_config,
+    // used by slicer_load_stl to centre the model on the correct bed.
+    double bed_x = 220.0;
+    double bed_y = 220.0;
+    bool   origin_at_center = false;
+
     SlicerContext() {
         // Start from factory defaults so we have a valid config baseline.
         // FullPrintConfig::defaults() returns the canonical defaults object.
@@ -124,6 +130,24 @@ static int set_err(SlicerContext* ctx, const char* msg) {
     return -1;
 }
 
+// ── GCodeFlavor mapping ───────────────────────────────────────────────────────
+// Must stay in sync with GCodeFlavor.bridgeInt in GCodeFlavor.swift.
+static const Slic3r::GCodeFlavor kFlavorMap[] = {
+    Slic3r::gcfMarlinLegacy,    // 0  = .marlin
+    Slic3r::gcfMarlinFirmware,  // 1  = .marlin2
+    Slic3r::gcfKlipper,         // 2  = .klipper
+    Slic3r::gcfRepRapSprinter,  // 3  = .repRap
+    Slic3r::gcfRepRapFirmware,  // 4  = .repRapFirmware
+    Slic3r::gcfTeacup,          // 5  = .teacup
+    Slic3r::gcfMakerWare,       // 6  = .makerWare
+    Slic3r::gcfSailfish,        // 7  = .sailfish
+    Slic3r::gcfMach3,           // 8  = .mach3
+    Slic3r::gcfMachinekit,      // 9  = .machineKit
+    Slic3r::gcfSmoothie,        // 10 = .smoothie
+    Slic3r::gcfNoExtrusion,     // 11 = .noGCode
+};
+static constexpr int kFlavorMapSize = static_cast<int>(sizeof(kFlavorMap) / sizeof(kFlavorMap[0]));
+
 // ── Public C API ─────────────────────────────────────────────────────────────
 extern "C" {
 
@@ -150,8 +174,10 @@ int slicer_load_stl(SlicerHandle handle, const char* path) {
         // Add default instances so the model has geometry to slice
         ctx->model.add_default_instances();
 
-        // Centre on the print bed
-        Slic3r::Vec2d bed_centre(110, 110);
+        // Centre on the print bed using stored printer dimensions.
+        double cx = ctx->origin_at_center ? 0.0 : ctx->bed_x / 2.0;
+        double cy = ctx->origin_at_center ? 0.0 : ctx->bed_y / 2.0;
+        Slic3r::Vec2d bed_centre(cx, cy);
         for (auto* obj : ctx->model.objects) {
             obj->center_around_origin();
         }
@@ -232,6 +258,76 @@ int slicer_export_gcode(SlicerHandle handle, const char* output_path) {
 
 const char* slicer_last_error(SlicerHandle handle) {
     return CTX(handle)->last_error.c_str();
+}
+
+int slicer_apply_printer_config(SlicerHandle handle, const SlicerPrinterConfig* cfg) {
+    auto ctx = CTX(handle);
+    if (!cfg) return set_err(ctx, "null printer config");
+    try {
+        // Store bed dimensions for use in slicer_load_stl.
+        ctx->bed_x = static_cast<double>(cfg->bed_x);
+        ctx->bed_y = static_cast<double>(cfg->bed_y);
+        ctx->origin_at_center = (cfg->origin_at_center != 0);
+
+        // bed_shape: rectangular polygon in mm.
+        // When origin is at front-left, polygon starts at (0,0).
+        // When origin is at centre, polygon starts at (-x/2, -y/2).
+        double ox = ctx->origin_at_center ? -ctx->bed_x / 2.0 : 0.0;
+        double oy = ctx->origin_at_center ? -ctx->bed_y / 2.0 : 0.0;
+        Slic3r::ConfigOptionPoints bed_shape;
+        bed_shape.values = {
+            Slic3r::Vec2d(ox,              oy),
+            Slic3r::Vec2d(ox + ctx->bed_x, oy),
+            Slic3r::Vec2d(ox + ctx->bed_x, oy + ctx->bed_y),
+            Slic3r::Vec2d(ox,              oy + ctx->bed_y),
+        };
+        ctx->config.set_key_value("bed_shape",
+            new Slic3r::ConfigOptionPoints(bed_shape));
+
+        // Max print height
+        ctx->config.set_key_value("max_print_height",
+            new Slic3r::ConfigOptionFloat(static_cast<double>(cfg->bed_z)));
+
+        // G-Code flavor
+        int fi = cfg->gcode_flavor;
+        Slic3r::GCodeFlavor flavor = (fi >= 0 && fi < kFlavorMapSize)
+            ? kFlavorMap[fi]
+            : Slic3r::gcfMarlinLegacy;
+        ctx->config.set_key_value("gcode_flavor",
+            new Slic3r::ConfigOptionEnum<Slic3r::GCodeFlavor>(flavor));
+
+        // Start / end gcode
+        if (cfg->start_gcode) {
+            ctx->config.set_key_value("start_gcode",
+                new Slic3r::ConfigOptionString(std::string(cfg->start_gcode)));
+        }
+        if (cfg->end_gcode) {
+            ctx->config.set_key_value("end_gcode",
+                new Slic3r::ConfigOptionString(std::string(cfg->end_gcode)));
+        }
+
+        // Nozzle / filament diameters (per-extruder arrays)
+        ctx->config.set_key_value("nozzle_diameter",
+            new Slic3r::ConfigOptionFloats({static_cast<double>(cfg->nozzle_diameter)}));
+        ctx->config.set_key_value("filament_diameter",
+            new Slic3r::ConfigOptionFloats({static_cast<double>(cfg->filament_diameter)}));
+
+        // Printhead clearance: use the largest half-extent as the radius.
+        float radius = std::max({std::abs(cfg->printhead_x_min),
+                                  std::abs(cfg->printhead_x_max),
+                                  std::abs(cfg->printhead_y_min),
+                                  std::abs(cfg->printhead_y_max)});
+        ctx->config.set_key_value("extruder_clearance_radius",
+            new Slic3r::ConfigOptionFloat(static_cast<double>(radius)));
+        if (cfg->gantry_height > 0.0f) {
+            ctx->config.set_key_value("extruder_clearance_height",
+                new Slic3r::ConfigOptionFloat(static_cast<double>(cfg->gantry_height)));
+        }
+
+        return 0;
+    } catch (const std::exception& e) {
+        return set_err(ctx, e);
+    }
 }
 
 } // extern "C"
