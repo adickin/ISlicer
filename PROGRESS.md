@@ -12,41 +12,16 @@
 - [ ] **Overhang highlight** — colour faces by angle to indicate support need
 - [ ] **Face normal colour mode** — shade by surface normal direction
 
-### Slicing Profiles
-Plan: `Plans/slicing_profiles.md`
-
-**Data model + persistence**
-- [ ] `InfillPattern` enum — gyroid, grid, honeycomb, lines, triangles, cubic, adaptive cubic, lightning (with `bridgeInt` mapping to PrusaSlicer's `InfillPattern` enum)
-- [ ] `SupportStyle` enum — Normal (Snug) / Tree (Auto)
-- [ ] `SupportPlacement` enum — Everywhere / Touching Build Plate Only
-- [ ] `BrimType` enum — None / Outer Only / Inner Only / Outer and Inner (with `bridgeInt`)
-- [ ] `SliceProfile` struct — all settings below, Codable
-- [ ] `SliceProfileStore` — `@MainActor ObservableObject`; JSON load/save; seed version bump
-- [ ] `BuiltInSliceProfiles` — Draft (0.3 mm), Standard (0.2 mm), Fine (0.1 mm)
-
-**Settings covered by SliceProfile:**
-- Layer height, first layer height
-- Wall count (perimeters), horizontal expansion (xy_size_compensation)
-- Top/bottom layers, min top/bottom thickness
-- Infill density (%), infill pattern
-- Speed: print (perimeter), infill, travel, first layer
-- Support: generate, style, placement, overhang angle, horizontal expansion, use towers
-- Build plate adhesion: None / Skirt (loops + distance) / Brim (type + width) / Raft (layers)
-
-**C bridge**
-- [ ] `SlicerSliceConfig` C struct + `slicer_apply_slice_config()` in `slicer_bridge.h/.cpp`
-- [ ] Refactor bridge config accumulation — merge printer + slice configs before `print.apply()`
-
-**UI**
-- [ ] `SliceProfileEditorView` — Form with Layers / Walls / Top-Bottom / Infill / Speed / Support / Adhesion sections
-- [ ] `SliceProfilePickerView` — list with summary subtitle (layer height · infill % · speed · supports on/off)
-- [ ] `ContentView` — "Profile: [Name]" row, calls `slicer_apply_slice_config` before slicing
-- [ ] `IosSlicerApp` — `SliceProfileStore` as second `@StateObject`, injected as `.environmentObject`
-
 ### Printer Profiles
 - [ ] **Additional built-in profiles** — Prusa MK4, Bambu X1C, Voron 2.4
 - [ ] **Multi-extruder bridge** — `SlicerPrinterConfig` currently only passes extruder 0; extend to pass per-extruder arrays for nozzle/filament diameter and offsets
 - [ ] **Reset profile to default** — "Reset to built-in defaults" button in profile editor for built-in profiles
+
+### Slicing Profiles
+- [ ] **Additional speed settings** — outer perimeter speed, small perimeter speed, bridge speed, top solid infill speed (currently only the 4 main speeds are exposed; all others use PrusaSlicer defaults)
+- [ ] **Reset profile to default** — "Reset to built-in defaults" button for built-in slice profiles (Draft / Standard / Fine)
+- [ ] **Seam position** — aligned / nearest / random (`seam_position` key)
+- [ ] **Extrusion width overrides** — per-feature extrusion width (perimeter, infill, top solid) for fine-tuning on non-standard nozzle sizes
 
 ### Material Profiles
 *Retraction, Z-hop, and cooling/fan settings live here — not in slice profiles — because they are material-dependent (PrusaSlicer filament profile architecture).*
@@ -100,6 +75,24 @@ Plan: `Plans/slicing_profiles.md`
 
 
 ## Completed
+
+### Slicing Profiles (2026-04-13)
+Plan: `Plans/slicing_profiles.md`
+- [x] `InfillPattern` enum — gyroid, grid, honeycomb, lines, triangles, cubic, adaptive cubic, lightning; `bridgeInt` ordinals verified against `PrintConfig.hpp` (gyroid=12, grid=4, etc.)
+- [x] `SupportStyle` enum — Normal (Snug) / Tree (Organic); `bridgeInt` → smsSnug(1) / smsOrganic(3)
+- [x] `SupportPlacement` enum — Everywhere / Touching Build Plate Only
+- [x] `BrimType` enum — Outer Only / Inner Only / Outer and Inner; `bridgeInt` → btOuterOnly(1) / btInnerOnly(2) / btOuterAndInner(3)
+- [x] `AdhesionType` enum — None / Skirt / Brim / Raft (top-level wrapper; maps to PrusaSlicer's separate `brim_type` / `skirts` / `raft_layers` keys)
+- [x] `SliceProfile` struct — all settings Codable; `pickerSubtitle` computed property (layer height · infill % · speed · supports on/off)
+- [x] `SliceProfileStore` — `@MainActor ObservableObject`; JSON load/save to `slice_profiles.json`; seed version bump
+- [x] `BuiltInSliceProfiles` — Draft (0.3 mm / 15% grid / 80 mm/s), Standard (0.2 mm / 20% gyroid / 60 mm/s), Fine (0.1 mm / 20% gyroid / 40 mm/s)
+- [x] `SlicerSliceConfig` C struct + `slicer_apply_slice_config()` — sets all 26 slice settings on `DynamicPrintConfig`; adhesion type fan-out to correct PrusaSlicer keys; speed type bug fixed (`perimeter_speed` / `infill_speed` are `ConfigOptionFloat`, not `ConfigOptionFloatOrPercent`)
+- [x] `slice_config_applied` flag on `SlicerContext` — prevents `slicer_slice_with_progress` legacy params from overwriting the slice config
+- [x] `SliceProfileEditorView` — Form with Name / Layers / Walls / Top-Bottom / Infill / Speed / Support / Adhesion sections; support sub-options revealed when generate support is on; adhesion sub-options switch by type; help button at bottom
+- [x] `SliceProfilePickerView` — circle-checkmark select, row-tap to edit, swipe-to-delete, + button; subtitle shows live profile summary
+- [x] `SliceProfileHelpView` — full plain-English descriptions for every setting, organized by section, presented as a sheet from the editor
+- [x] `ContentView` — "Slice Profile" row (slider icon) alongside printer row; guards slice if no profile selected; calls `slicer_apply_slice_config` before every slice; status subtitle and gcode filename reflect the active profile
+- [x] `IosSlicerApp` — `SliceProfileStore` as second `@StateObject`, injected as `.environmentObject`, loaded in `.task`
 
 ### Printer Profiles (2026-04-13)
 - [x] `GCodeFlavor` enum — 12 flavors with `bridgeInt` mapping to PrusaSlicer's `GCodeFlavor` enum order

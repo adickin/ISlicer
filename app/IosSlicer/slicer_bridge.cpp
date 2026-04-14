@@ -35,6 +35,11 @@ struct SlicerContext {
     double bed_y = 220.0;
     bool   origin_at_center = false;
 
+    // Set to true once slicer_apply_slice_config has been called so that
+    // slicer_slice_with_progress doesn't clobber the slice settings with its
+    // legacy layer_height / infill_percent parameters.
+    bool   slice_config_applied = false;
+
     SlicerContext() {
         // Start from factory defaults so we have a valid config baseline.
         // FullPrintConfig::defaults() returns the canonical defaults object.
@@ -203,10 +208,15 @@ int slicer_slice_with_progress(SlicerHandle handle,
 {
     auto ctx = CTX(handle);
     try {
-        ctx->config.set_key_value("layer_height",
-            new Slic3r::ConfigOptionFloat(static_cast<double>(layer_height)));
-        ctx->config.set_key_value("fill_density",
-            new Slic3r::ConfigOptionPercent(infill_percent));
+        // layer_height and infill_percent are kept in the signature for compatibility
+        // but the values are now owned by slicer_apply_slice_config. If no slice
+        // config has been applied (legacy call path), fall back to the parameters.
+        if (!ctx->slice_config_applied) {
+            ctx->config.set_key_value("layer_height",
+                new Slic3r::ConfigOptionFloat(static_cast<double>(layer_height)));
+            ctx->config.set_key_value("fill_density",
+                new Slic3r::ConfigOptionPercent(infill_percent));
+        }
 
         ctx->print.clear();
         ctx->print.restart();  // clear any previous cancel flag
@@ -324,6 +334,137 @@ int slicer_apply_printer_config(SlicerHandle handle, const SlicerPrinterConfig* 
                 new Slic3r::ConfigOptionFloat(static_cast<double>(cfg->gantry_height)));
         }
 
+        return 0;
+    } catch (const std::exception& e) {
+        return set_err(ctx, e);
+    }
+}
+
+int slicer_apply_slice_config(SlicerHandle handle, const SlicerSliceConfig* cfg) {
+    auto ctx = CTX(handle);
+    if (!cfg) return set_err(ctx, "null slice config");
+    try {
+        // Layers
+        ctx->config.set_key_value("layer_height",
+            new Slic3r::ConfigOptionFloat(static_cast<double>(cfg->layer_height)));
+        ctx->config.set_key_value("first_layer_height",
+            new Slic3r::ConfigOptionFloatOrPercent(
+                static_cast<double>(cfg->first_layer_height), false));
+
+        // Walls
+        ctx->config.set_key_value("perimeters",
+            new Slic3r::ConfigOptionInt(cfg->wall_count));
+        ctx->config.set_key_value("xy_size_compensation",
+            new Slic3r::ConfigOptionFloat(static_cast<double>(cfg->horizontal_expansion)));
+
+        // Top / Bottom
+        ctx->config.set_key_value("top_solid_layers",
+            new Slic3r::ConfigOptionInt(cfg->top_layers));
+        ctx->config.set_key_value("bottom_solid_layers",
+            new Slic3r::ConfigOptionInt(cfg->bottom_layers));
+        if (cfg->top_thickness > 0.0f) {
+            ctx->config.set_key_value("top_solid_min_thickness",
+                new Slic3r::ConfigOptionFloat(static_cast<double>(cfg->top_thickness)));
+        }
+        if (cfg->bottom_thickness > 0.0f) {
+            ctx->config.set_key_value("bottom_solid_min_thickness",
+                new Slic3r::ConfigOptionFloat(static_cast<double>(cfg->bottom_thickness)));
+        }
+
+        // Infill
+        ctx->config.set_key_value("fill_density",
+            new Slic3r::ConfigOptionPercent(cfg->infill_density));
+        ctx->config.set_key_value("fill_pattern",
+            new Slic3r::ConfigOptionEnum<Slic3r::InfillPattern>(
+                static_cast<Slic3r::InfillPattern>(cfg->infill_pattern)));
+
+        // Speed — types verified against PrintConfig.hpp:
+        // perimeter_speed: ConfigOptionFloat
+        // infill_speed:    ConfigOptionFloat
+        // travel_speed:    ConfigOptionFloat
+        // first_layer_speed: ConfigOptionFloatOrPercent
+        ctx->config.set_key_value("perimeter_speed",
+            new Slic3r::ConfigOptionFloat(static_cast<double>(cfg->print_speed)));
+        ctx->config.set_key_value("infill_speed",
+            new Slic3r::ConfigOptionFloat(static_cast<double>(cfg->infill_speed)));
+        ctx->config.set_key_value("travel_speed",
+            new Slic3r::ConfigOptionFloat(static_cast<double>(cfg->travel_speed)));
+        ctx->config.set_key_value("first_layer_speed",
+            new Slic3r::ConfigOptionFloatOrPercent(
+                static_cast<double>(cfg->first_layer_speed), false));
+
+        // Support
+        bool gen_support = (cfg->generate_support != 0);
+        ctx->config.set_key_value("support_material",
+            new Slic3r::ConfigOptionBool(gen_support));
+        if (gen_support) {
+            // smsGrid=0, smsSnug=1, smsTree=2, smsOrganic=3
+            Slic3r::SupportMaterialStyle sms = (cfg->support_style == 0)
+                ? Slic3r::smsSnug : Slic3r::smsOrganic;
+            ctx->config.set_key_value("support_material_style",
+                new Slic3r::ConfigOptionEnum<Slic3r::SupportMaterialStyle>(sms));
+            ctx->config.set_key_value("support_material_buildplate_only",
+                new Slic3r::ConfigOptionBool(cfg->support_buildplate_only != 0));
+            ctx->config.set_key_value("support_material_threshold",
+                new Slic3r::ConfigOptionInt(cfg->support_overhang_angle));
+            // xy_spacing is stored as absolute mm (percent=false)
+            ctx->config.set_key_value("support_material_xy_spacing",
+                new Slic3r::ConfigOptionFloatOrPercent(
+                    static_cast<double>(cfg->support_xy_spacing), false));
+            ctx->config.set_key_value("support_material_with_sheath",
+                new Slic3r::ConfigOptionBool(cfg->support_use_towers != 0));
+        }
+
+        // Build plate adhesion
+        // adhesion_type: 0=none, 1=skirt, 2=brim, 3=raft
+        switch (cfg->adhesion_type) {
+            case 0: // none
+                ctx->config.set_key_value("brim_type",
+                    new Slic3r::ConfigOptionEnum<Slic3r::BrimType>(Slic3r::btNoBrim));
+                ctx->config.set_key_value("skirts",
+                    new Slic3r::ConfigOptionInt(0));
+                ctx->config.set_key_value("raft_layers",
+                    new Slic3r::ConfigOptionInt(0));
+                break;
+            case 1: // skirt
+                ctx->config.set_key_value("brim_type",
+                    new Slic3r::ConfigOptionEnum<Slic3r::BrimType>(Slic3r::btNoBrim));
+                ctx->config.set_key_value("skirts",
+                    new Slic3r::ConfigOptionInt(cfg->skirt_loops));
+                ctx->config.set_key_value("skirt_distance",
+                    new Slic3r::ConfigOptionFloat(static_cast<double>(cfg->skirt_distance)));
+                ctx->config.set_key_value("raft_layers",
+                    new Slic3r::ConfigOptionInt(0));
+                break;
+            case 2: { // brim
+                // brim_type: 1=outer_only, 2=inner_only, 3=outer_and_inner
+                int bt = cfg->brim_type;
+                Slic3r::BrimType brim = (bt == 2) ? Slic3r::btInnerOnly
+                                      : (bt == 3) ? Slic3r::btOuterAndInner
+                                                  : Slic3r::btOuterOnly;
+                ctx->config.set_key_value("brim_type",
+                    new Slic3r::ConfigOptionEnum<Slic3r::BrimType>(brim));
+                ctx->config.set_key_value("brim_width",
+                    new Slic3r::ConfigOptionFloat(static_cast<double>(cfg->brim_width)));
+                ctx->config.set_key_value("skirts",
+                    new Slic3r::ConfigOptionInt(0));
+                ctx->config.set_key_value("raft_layers",
+                    new Slic3r::ConfigOptionInt(0));
+                break;
+            }
+            case 3: // raft
+                ctx->config.set_key_value("brim_type",
+                    new Slic3r::ConfigOptionEnum<Slic3r::BrimType>(Slic3r::btNoBrim));
+                ctx->config.set_key_value("skirts",
+                    new Slic3r::ConfigOptionInt(0));
+                ctx->config.set_key_value("raft_layers",
+                    new Slic3r::ConfigOptionInt(cfg->raft_layers));
+                break;
+            default:
+                break;
+        }
+
+        ctx->slice_config_applied = true;
         return 0;
     } catch (const std::exception& e) {
         return set_err(ctx, e);

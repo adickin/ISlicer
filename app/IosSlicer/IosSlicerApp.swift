@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct IosSlicerApp: App {
     @StateObject private var profileStore = ProfileStore()
+    @StateObject private var sliceProfileStore = SliceProfileStore()
 
     init() {
         copySampleSTLsToDocuments()
@@ -12,8 +13,10 @@ struct IosSlicerApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(profileStore)
+                .environmentObject(sliceProfileStore)
                 .task {
                     profileStore.load()
+                    sliceProfileStore.load()
                 }
         }
     }

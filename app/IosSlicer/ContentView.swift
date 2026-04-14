@@ -23,13 +23,16 @@ private final class ProgressRelay: @unchecked Sendable {
 
 struct ContentView: View {
     @EnvironmentObject var profileStore: ProfileStore
+    @EnvironmentObject var sliceProfileStore: SliceProfileStore
 
     @State private var state: SliceState = .idle
     @State private var showShareSheet = false
     @State private var showFilePicker = false
     @State private var showErrorAlert = false
     @State private var showProfilePicker = false
+    @State private var showSliceProfilePicker = false
     @State private var showNoProfileAlert = false
+    @State private var showNoSliceProfileAlert = false
 
     /// URL of the STL that has been copied to the temp directory.
     @State private var loadedSTLURL: URL? = nil
@@ -41,9 +44,6 @@ struct ContentView: View {
 
     /// Retained while a slice is in progress; lets the cancel button reach slicer_cancel().
     @State private var activeHandle: SlicerHandle? = nil
-
-    private let layerHeight: Float = 0.2
-    private let infillPercent: Int32 = 20
 
     private var isBusy: Bool {
         if case .slicing = state { return true }
@@ -73,6 +73,9 @@ struct ContentView: View {
         .sheet(isPresented: $showProfilePicker) {
             ProfilePickerView()
         }
+        .sheet(isPresented: $showSliceProfilePicker) {
+            SliceProfilePickerView()
+        }
         .alert("Slicing Error", isPresented: $showErrorAlert) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -83,6 +86,12 @@ struct ContentView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Please select a printer profile before slicing.")
+        }
+        .alert("No Slice Profile Selected", isPresented: $showNoSliceProfileAlert) {
+            Button("Choose Profile") { showSliceProfilePicker = true }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Please select a slice profile before slicing.")
         }
     }
 
@@ -118,9 +127,15 @@ struct ContentView: View {
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(loadedSTLName).font(.headline)
-                        Text("Layer \(String(format: "%.1f", layerHeight)) mm · Infill \(infillPercent)%")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        if let sp = sliceProfileStore.selectedProfile {
+                            Text(sp.pickerSubtitle)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text("No slice profile selected")
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        }
                     }
                     Spacer()
                     Button {
@@ -147,6 +162,25 @@ struct ContentView: View {
                         )
                         .font(.caption)
                         .foregroundStyle(profileStore.selectedProfile == nil ? .red : .primary)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .disabled(isBusy)
+
+                // Slice profile row
+                Button {
+                    showSliceProfilePicker = true
+                } label: {
+                    HStack {
+                        Label(
+                            sliceProfileStore.selectedProfile?.name ?? "No Slice Profile Selected",
+                            systemImage: "slider.horizontal.3"
+                        )
+                        .font(.caption)
+                        .foregroundStyle(sliceProfileStore.selectedProfile == nil ? .red : .primary)
                         Spacer()
                         Image(systemName: "chevron.right")
                             .font(.caption2)
@@ -280,9 +314,13 @@ struct ContentView: View {
     }
 
     private func runSlice() async {
-        // 0. Require a printer profile
-        guard let profile = await MainActor.run(body: { profileStore.selectedProfile }) else {
+        // 0. Require both profiles
+        guard let printerProfile = await MainActor.run(body: { profileStore.selectedProfile }) else {
             await MainActor.run { showNoProfileAlert = true }
+            return
+        }
+        guard let sliceProfile = await MainActor.run(body: { sliceProfileStore.selectedProfile }) else {
+            await MainActor.run { showNoSliceProfileAlert = true }
             return
         }
 
@@ -300,7 +338,8 @@ struct ContentView: View {
         // 2. Output path in Documents
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let stem = URL(fileURLWithPath: stlPath).deletingPathExtension().lastPathComponent
-        let outName = String(format: "%@_%.2fmm_%d.gcode", stem, layerHeight, infillPercent)
+        let outName = String(format: "%@_%.2fmm_%d.gcode",
+                             stem, sliceProfile.layerHeight, sliceProfile.infillDensity)
         let gcodeURL = docs.appendingPathComponent(outName)
 
         // 3. Create slicer context
@@ -317,13 +356,21 @@ struct ContentView: View {
 
         // 4. Apply printer profile
         await setPhase("Applying printer profile…")
-        if !applyPrinterProfile(profile, to: handle) {
+        if !applyPrinterProfile(printerProfile, to: handle) {
             let msg = String(cString: slicer_last_error(handle))
             await MainActor.run { state = .failed(message: msg) ; showErrorAlert = true }
             return
         }
 
-        // 5. Load STL
+        // 5. Apply slice profile
+        await setPhase("Applying slice profile…")
+        if !applySliceProfile(sliceProfile, to: handle) {
+            let msg = String(cString: slicer_last_error(handle))
+            await MainActor.run { state = .failed(message: msg) ; showErrorAlert = true }
+            return
+        }
+
+        // 6. Load STL
         await setPhase("Loading \(URL(fileURLWithPath: stlPath).lastPathComponent)…")
         if slicer_load_stl(handle, stlPath) != 0 {
             let msg = String(cString: slicer_last_error(handle))
@@ -331,8 +378,9 @@ struct ContentView: View {
             return
         }
 
-        // 6. Slice with progress
-        await setPhase("Slicing at \(String(format: "%.1f", layerHeight)) mm / \(infillPercent)% infill…")
+        // 7. Slice with progress
+        let lhStr = String(format: "%.2g", sliceProfile.layerHeight)
+        await setPhase("Slicing at \(lhStr) mm / \(sliceProfile.infillDensity)% infill…")
 
         let relay = ProgressRelay()
         relay.handler = { pct in
@@ -345,7 +393,9 @@ struct ContentView: View {
         let relayPtr = Unmanaged.passRetained(relay).toOpaque()
 
         let sliceResult = slicer_slice_with_progress(
-            handle, layerHeight, infillPercent,
+            handle,
+            Float(sliceProfile.layerHeight),
+            Int32(sliceProfile.infillDensity),
             { pct, ctx in
                 guard let ctx else { return }
                 Unmanaged<ProgressRelay>.fromOpaque(ctx).takeUnretainedValue().handler(pct)
@@ -367,7 +417,7 @@ struct ContentView: View {
             return
         }
 
-        // 7. Export G-code
+        // 8. Export G-code
         await setPhase("Exporting G-code…", progress: 0.95)
         if slicer_export_gcode(handle, gcodeURL.path) != 0 {
             let msg = String(cString: slicer_last_error(handle))
@@ -378,7 +428,38 @@ struct ContentView: View {
         await MainActor.run { state = .done(gcodeURL: gcodeURL) }
     }
 
-    // MARK: Profile → C bridge
+    // MARK: Profiles → C bridge
+
+    private func applySliceProfile(_ profile: SliceProfile, to handle: SlicerHandle) -> Bool {
+        var cfg = SlicerSliceConfig()
+        cfg.layer_height         = Float(profile.layerHeight)
+        cfg.first_layer_height   = Float(profile.firstLayerHeight)
+        cfg.wall_count           = Int32(profile.wallCount)
+        cfg.horizontal_expansion = Float(profile.horizontalExpansion)
+        cfg.top_layers           = Int32(profile.topLayers)
+        cfg.bottom_layers        = Int32(profile.bottomLayers)
+        cfg.top_thickness        = Float(profile.topThickness)
+        cfg.bottom_thickness     = Float(profile.bottomThickness)
+        cfg.infill_density       = Int32(profile.infillDensity)
+        cfg.infill_pattern       = profile.infillPattern.bridgeInt
+        cfg.print_speed          = Float(profile.printSpeed)
+        cfg.infill_speed         = Float(profile.infillSpeed)
+        cfg.travel_speed         = Float(profile.travelSpeed)
+        cfg.first_layer_speed    = Float(profile.firstLayerSpeed)
+        cfg.generate_support     = profile.generateSupport ? 1 : 0
+        cfg.support_style        = profile.supportStyle.bridgeInt
+        cfg.support_buildplate_only = profile.supportPlacement == .buildplateOnly ? 1 : 0
+        cfg.support_overhang_angle  = Int32(profile.supportOverhangAngle)
+        cfg.support_xy_spacing      = Float(profile.supportHorizontalExpansion)
+        cfg.support_use_towers      = profile.supportUseTowers ? 1 : 0
+        cfg.adhesion_type        = profile.adhesionType.bridgeInt
+        cfg.brim_type            = profile.brimType.bridgeInt
+        cfg.brim_width           = Float(profile.brimWidth)
+        cfg.skirt_loops          = Int32(profile.skirtLoops)
+        cfg.skirt_distance       = Float(profile.skirtDistance)
+        cfg.raft_layers          = Int32(profile.raftLayers)
+        return slicer_apply_slice_config(handle, &cfg) == 0
+    }
 
     private func applyPrinterProfile(_ profile: PrinterProfile, to handle: SlicerHandle) -> Bool {
         let nozzle = Float(profile.extruders.first?.nozzleDiameter ?? 0.4)
@@ -456,4 +537,5 @@ struct ShareSheetView: UIViewControllerRepresentable {
 #Preview {
     ContentView()
         .environmentObject(ProfileStore())
+        .environmentObject(SliceProfileStore())
 }

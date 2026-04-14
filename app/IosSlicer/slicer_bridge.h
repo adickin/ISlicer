@@ -84,6 +84,59 @@ typedef struct {
 int slicer_apply_printer_config(SlicerHandle handle,
                                 const SlicerPrinterConfig* cfg);
 
+// ── Slice profile ─────────────────────────────────────────────────────────────
+
+// Slicing settings passed from Swift into the slicer context.
+// Call before slicer_slice / slicer_slice_with_progress.
+typedef struct {
+    // Layers
+    float layer_height;          // mm — layer_height
+    float first_layer_height;    // mm — first_layer_height
+
+    // Walls
+    int   wall_count;            // perimeters
+    float horizontal_expansion;  // mm — xy_size_compensation (negative = shrink)
+
+    // Top / Bottom
+    int   top_layers;            // top_solid_layers
+    int   bottom_layers;         // bottom_solid_layers
+    float top_thickness;         // mm — top_solid_min_thickness (0 = use layer count)
+    float bottom_thickness;      // mm — bottom_solid_min_thickness (0 = use layer count)
+
+    // Infill
+    int   infill_density;        // 0–100 % — fill_density
+    int   infill_pattern;        // InfillPattern::bridgeInt — fill_pattern
+
+    // Speed (mm/s)
+    float print_speed;           // perimeter_speed
+    float infill_speed;          // infill_speed
+    float travel_speed;          // travel_speed
+    float first_layer_speed;     // first_layer_speed
+
+    // Support
+    int   generate_support;          // bool — support_material
+    int   support_style;             // 0=normal(snug), 1=tree(organic) — support_material_style
+    int   support_buildplate_only;   // bool — support_material_buildplate_only
+    int   support_overhang_angle;    // degrees — support_material_threshold
+    float support_xy_spacing;        // mm — support_material_xy_spacing
+    int   support_use_towers;        // bool — support_material_with_sheath
+
+    // Build plate adhesion
+    // adhesion_type: 0=none, 1=skirt, 2=brim, 3=raft
+    int   adhesion_type;
+    int   brim_type;             // 1=outer_only, 2=inner_only, 3=outer_and_inner — brim_type
+    float brim_width;            // mm — brim_width
+    int   skirt_loops;           // skirts
+    float skirt_distance;        // mm — skirt_distance
+    int   raft_layers;           // raft_layers
+} SlicerSliceConfig;
+
+// Apply slice settings to the slicer context.
+// Must be called before slicer_slice / slicer_slice_with_progress.
+// Returns 0 on success, negative on error.
+int slicer_apply_slice_config(SlicerHandle handle,
+                              const SlicerSliceConfig* cfg);
+
 #ifdef __cplusplus
 }
 #endif
