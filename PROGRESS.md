@@ -6,11 +6,7 @@
 - [ ] **Device build** — `build_device.sh` in progress; `common.sh` now platform-aware; `project.yml` uses `$(IOS_SYSROOT)` with SDK conditionals; `11_xcframework.sh` creates dual slice when both sysroots exist
 
 ### Viewer
-- [ ] **Layer preview** — parse and visualize gcode layers (lines by extrusion type)
-- [ ] **Print time + filament estimate** — read from gcode comments after slicing
-- [ ] **Wireframe toggle** — overlay wire edges on the mesh
-- [ ] **Overhang highlight** — colour faces by angle to indicate support need
-- [ ] **Face normal colour mode** — shade by surface normal direction
+_(all items complete — see Plans/viewer_features.md)_
 
 ### Printer Profiles
 - [ ] **Additional built-in profiles** — Prusa MK4, Bambu X1C, Voron 2.4
@@ -46,6 +42,14 @@
 
 
 ## Completed
+
+### Viewer (2026-04-15)
+Plan: `Plans/viewer_features.md`
+- [x] **Print time + filament estimate** — `parseGCodeStats()` in `ContentView` scans PrusaSlicer's `; estimated printing time (normal mode) =` and `; filament used [g] =` comments from the exported gcode; displayed in status row + collapsed panel subtitle
+- [x] **Wireframe toggle** — `STLParser.buildGeometry` always emits a second `SCNGeometryElement` of type `.line` (3 edges per triangle); `STLSceneView.showWireframe` toggles visibility via `materials[1].transparency`; floating button in viewer overlay
+- [x] **Overhang highlight** — `ViewerColorMode.overhang` mode in `STLParser`; per-vertex `SCNGeometrySource` with `.color` semantic; faces with `n.z < -0.5` (STL space) = red-orange, `n.z < 0` = yellow, upward = grey; `.constant` lighting
+- [x] **Face normal colour mode** — `ViewerColorMode.faceNormal`; normal XYZ mapped to RGB via `(n+1)/2`; same per-vertex colour source path as overhang; cycled via same overlay button
+- [x] **Layer preview** — `GCodeParser.swift`: full PrusaSlicer gcode parser (`parseGCode`) emitting `[GCodeLayer]` with typed `GCodeMove` (`ExtrusionType`); `GCodeSceneView.swift`: async geometry build (Task.detached), per-type line colours, bed grid + axes; `ContentView`: layer slider overlay, toggle button, parses layers immediately after export
 
 ### Material Profiles (2026-04-15)
 Plan: `Plans/material_profiles.md`

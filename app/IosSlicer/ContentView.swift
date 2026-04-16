@@ -45,6 +45,15 @@ struct ContentView: View {
     @State private var loadedSTLGeometry: SCNGeometry? = nil
     @State private var isParsingSTL = false
 
+    // Viewer controls
+    @State private var showWireframe: Bool = false
+    @State private var viewerColorMode: ViewerColorMode = .solid
+
+    // Layer preview
+    @State private var showLayerPreview: Bool = false
+    @State private var parsedLayers: [GCodeLayer] = []
+    @State private var currentLayerIndex: Int = 0
+
     /// Retained while a slice is in progress; lets the cancel button reach slicer_cancel().
     @State private var activeHandle: SlicerHandle? = nil
 
@@ -55,29 +64,51 @@ struct ContentView: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            // Full-screen 3D viewer
-            STLSceneView(
-                geometry: loadedSTLGeometry,
-                bedX: profileStore.selectedProfile?.bedX ?? 220,
-                bedY: profileStore.selectedProfile?.bedY ?? 220
-            )
-                .ignoresSafeArea()
-                .overlay {
-                    if isParsingSTL {
-                        Color(.systemGray6).opacity(0.7)
-                            .ignoresSafeArea()
-                            .overlay { ProgressView("Loading…") }
+            // Full-screen viewer — STL or GCode layer preview
+            Group {
+                if showLayerPreview && !parsedLayers.isEmpty {
+                    GCodeSceneView(
+                        layers: parsedLayers,
+                        currentLayerIndex: currentLayerIndex,
+                        bedX: profileStore.selectedProfile?.bedX ?? 220,
+                        bedY: profileStore.selectedProfile?.bedY ?? 220
+                    )
+                } else {
+                    STLSceneView(
+                        geometry: loadedSTLGeometry,
+                        bedX: profileStore.selectedProfile?.bedX ?? 220,
+                        bedY: profileStore.selectedProfile?.bedY ?? 220,
+                        showWireframe: showWireframe,
+                        stlURL: loadedSTLURL
+                    )
+                    .overlay {
+                        if isParsingSTL {
+                            Color(.systemGray6).opacity(0.7)
+                                .overlay { ProgressView("Loading…") }
+                        }
                     }
                 }
+            }
+            .ignoresSafeArea()
+
+            // Viewer controls overlay — top-right floating buttons
+            viewerControlsOverlay
+
+            // Layer slider — shown above the panel when in layer preview mode
+            if showLayerPreview && !parsedLayers.isEmpty {
+                layerSliderView
+            }
 
             // Bottom panel
             bottomPanel
         }
         .ignoresSafeArea(edges: .top)
+        .onChange(of: viewerColorMode) { _ in
+            // Re-parse with new colour mode; camera is NOT reset (same URL)
+            if let url = loadedSTLURL { parseSTLPreview(url: url) }
+        }
         .sheet(isPresented: $showFilePicker) {
-            DocumentPickerView { url in
-                importSTL(from: url)
-            }
+            DocumentPickerView { url in importSTL(from: url) }
         }
         .sheet(isPresented: $showShareSheet) {
             if case .done(let url, _, _) = state {
@@ -110,6 +141,95 @@ struct ContentView: View {
         } message: {
             Text("Please select a slice profile before slicing.")
         }
+    }
+
+    // MARK: - Viewer controls overlay
+
+    private var viewerControlsOverlay: some View {
+        VStack {
+            HStack {
+                Spacer()
+                VStack(spacing: 10) {
+                    // STL-mode controls: only when model is loaded and not in layer preview
+                    if !showLayerPreview && loadedSTLGeometry != nil {
+                        // Wireframe toggle
+                        Button {
+                            showWireframe.toggle()
+                        } label: {
+                            Image(systemName: "square.3.layers.3d")
+                                .font(.title3)
+                                .padding(10)
+                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .strokeBorder(showWireframe ? Color.accentColor : Color.clear, lineWidth: 1.5)
+                                )
+                        }
+                        .buttonStyle(.plain)
+
+                        // Colour mode cycle
+                        Button {
+                            viewerColorMode = viewerColorMode.next
+                        } label: {
+                            Image(systemName: viewerColorMode.icon)
+                                .font(.title3)
+                                .padding(10)
+                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .strokeBorder(viewerColorMode != .solid ? Color.accentColor : Color.clear, lineWidth: 1.5)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    // Layer preview toggle — visible when gcode is ready
+                    if case .done = state, !parsedLayers.isEmpty {
+                        Button {
+                            showLayerPreview.toggle()
+                        } label: {
+                            Image(systemName: showLayerPreview ? "cube.transparent" : "square.3.layers.3d.slash")
+                                .font(.title3)
+                                .padding(10)
+                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .strokeBorder(showLayerPreview ? Color.accentColor : Color.clear, lineWidth: 1.5)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.top, 60)
+                .padding(.trailing, 16)
+            }
+            Spacer()
+        }
+    }
+
+    // MARK: - Layer slider
+
+    private var layerSliderView: some View {
+        VStack(spacing: 6) {
+            Text("Layer \(currentLayerIndex + 1) of \(parsedLayers.count)")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(.black.opacity(0.55), in: Capsule())
+
+            Slider(
+                value: Binding(
+                    get: { Double(currentLayerIndex) },
+                    set: { currentLayerIndex = Int($0.rounded()) }
+                ),
+                in: 0...Double(max(0, parsedLayers.count - 1)),
+                step: 1
+            )
+            .tint(.white)
+            .padding(.horizontal, 20)
+        }
+        .padding(.bottom, 8)
     }
 
     // MARK: - Bottom Panel
@@ -403,6 +523,9 @@ struct ContentView: View {
             loadedSTLURL = dest
             loadedSTLName = url.lastPathComponent
             state = .idle
+            // Reset layer preview when a new model is loaded
+            showLayerPreview = false
+            parsedLayers = []
             parseSTLPreview(url: dest)
         } catch {
             state = .failed(message: "Could not import STL: \(error.localizedDescription)")
@@ -411,10 +534,10 @@ struct ContentView: View {
     }
 
     private func parseSTLPreview(url: URL) {
-        // Don't nil out geometry — keep the old model visible while the new one parses.
         isParsingSTL = true
+        let mode = viewerColorMode
         Task.detached(priority: .userInitiated) {
-            let geo = try? parseSTL(url: url)
+            let geo = try? parseSTL(url: url, colorMode: mode)
             await MainActor.run {
                 loadedSTLGeometry = geo
                 isParsingSTL = false
@@ -503,7 +626,7 @@ struct ContentView: View {
             return
         }
 
-        // 7. Slice with progress
+        // 8. Slice with progress
         let lhStr = String(format: "%.2g", sliceProfile.layerHeight)
         await setPhase("Slicing at \(lhStr) mm / \(sliceProfile.infillDensity)% infill…")
 
@@ -542,7 +665,7 @@ struct ContentView: View {
             return
         }
 
-        // 8. Export G-code
+        // 9. Export G-code
         await setPhase("Exporting G-code…", progress: 0.95)
         if slicer_export_gcode(handle, gcodeURL.path) != 0 {
             let msg = String(cString: slicer_last_error(handle))
@@ -550,17 +673,21 @@ struct ContentView: View {
             return
         }
 
-        // 9. Parse print time + filament estimate from G-code comments
+        // 10. Parse stats and layer preview data
+        await setPhase("Parsing results…", progress: 0.99)
         let (printTime, filamentG) = parseGCodeStats(url: gcodeURL)
+        let layers = parseGCode(url: gcodeURL)
 
-        await MainActor.run { state = .done(gcodeURL: gcodeURL, printTime: printTime, filamentG: filamentG) }
+        await MainActor.run {
+            state = .done(gcodeURL: gcodeURL, printTime: printTime, filamentG: filamentG)
+            parsedLayers = layers
+            currentLayerIndex = max(0, layers.count - 1)
+            showLayerPreview = false   // start on model view; user can switch via overlay button
+        }
     }
 
     // MARK: G-code stats parsing
 
-    /// Scans the exported G-code for PrusaSlicer's time and filament comment lines:
-    ///   ; estimated printing time (normal mode) = 1h 23m 45s
-    ///   ; filament used [g] = 10.53
     private func parseGCodeStats(url: URL) -> (printTime: String?, filamentG: String?) {
         guard let text = try? String(contentsOf: url, encoding: .utf8) else { return (nil, nil) }
         var printTime: String?
@@ -639,7 +766,6 @@ struct ContentView: View {
         let nozzle = Float(profile.extruders.first?.nozzleDiameter ?? 0.4)
         let filament = Float(profile.extruders.first?.compatibleMaterialDiameters.first ?? 1.75)
 
-        // withCString keeps the C strings alive for the duration of the nested closures.
         return profile.startGCode.withCString { startPtr in
             profile.endGCode.withCString { endPtr in
                 var cfg = SlicerPrinterConfig()
