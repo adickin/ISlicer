@@ -124,9 +124,9 @@ private func buildGeometry(
     }
 
     let center = (minPt + maxPt) * 0.5
-    let extent = maxPt - minPt
-    let maxAxis = max(extent.x, max(extent.y, extent.z))
-    let scale: Float = maxAxis > 0 ? 1.0 / maxAxis : 1.0
+    // STL coordinates are in mm. Scale to SceneKit units where 1 unit = 100 mm
+    // so the model appears at its correct physical size on the bed grid.
+    let scale: Float = 1.0 / 100.0
 
     for tri in triangles {
         // Normalize vertices

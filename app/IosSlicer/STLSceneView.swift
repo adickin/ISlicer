@@ -3,6 +3,10 @@ import SwiftUI
 
 struct STLSceneView: UIViewRepresentable {
     let geometry: SCNGeometry?
+    /// Printer bed width in mm (X axis). Defaults to 220 mm if no printer selected.
+    var bedX: Double = 220
+    /// Printer bed depth in mm (Y axis). Defaults to 220 mm if no printer selected.
+    var bedY: Double = 220
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -21,12 +25,16 @@ struct STLSceneView: UIViewRepresentable {
         let scene = SCNScene()
         scnView.scene = scene
 
-        // Print bed grid — always visible, gives SceneKit content from frame one
-        scene.rootNode.addChildNode(makePrintBedNode())
+        // Print bed grid — sized to actual printer bed dimensions
+        let bedNode = makePrintBedNode(bedX: bedX, bedY: bedY)
+        bedNode.name = "printBed"
+        scene.rootNode.addChildNode(bedNode)
 
-        // XYZ axis gizmo at the front-left corner of the grid
+        // XYZ axis gizmo at the front-left corner of the bed
         // Cura convention: X=right (red), Y=forward (green), Z=up (blue)
-        scene.rootNode.addChildNode(makeAxesNode())
+        let axesNode = makeAxesNode(bedX: bedX, bedY: bedY)
+        axesNode.name = "axes"
+        scene.rootNode.addChildNode(axesNode)
 
         // Mesh node — rotated to convert STL Z-up to SceneKit Y-up
         // STL/Cura: X=right, Y=forward, Z=up
@@ -55,23 +63,41 @@ struct STLSceneView: UIViewRepresentable {
         keyNode.eulerAngles = SCNVector3(-0.9, 0.5, 0)
         scene.rootNode.addChildNode(keyNode)
 
-        // Camera — angled to see grid and model from a natural Cura-like perspective
+        // Camera — angled to see the full bed from a natural Cura-like perspective
+        let bedDiag = Float(sqrt(bedX * bedX + bedY * bedY)) / 100
         let camera = SCNCamera()
         camera.zNear = 0.01
         camera.zFar  = 100
         camera.fieldOfView = 45
         let cameraNode = SCNNode()
         cameraNode.camera = camera
-        cameraNode.position = SCNVector3(2.4, 1.6, 3.2)
+        cameraNode.position = SCNVector3(bedDiag * 0.75, bedDiag * 0.5, bedDiag)
         cameraNode.look(at: SCNVector3(0, 0, 0))
         scene.rootNode.addChildNode(cameraNode)
         scnView.pointOfView = cameraNode
         context.coordinator.cameraNode = cameraNode
+        context.coordinator.lastBedX = bedX
+        context.coordinator.lastBedY = bedY
 
         return scnView
     }
 
     func updateUIView(_ scnView: SCNView, context: Context) {
+        // Rebuild bed grid and axes if printer selection changed
+        let bedChanged = context.coordinator.lastBedX != bedX || context.coordinator.lastBedY != bedY
+        if bedChanged, let scene = scnView.scene {
+            scene.rootNode.childNode(withName: "printBed", recursively: false)?.removeFromParentNode()
+            scene.rootNode.childNode(withName: "axes", recursively: false)?.removeFromParentNode()
+            let bedNode = makePrintBedNode(bedX: bedX, bedY: bedY)
+            bedNode.name = "printBed"
+            scene.rootNode.addChildNode(bedNode)
+            let axesNode = makeAxesNode(bedX: bedX, bedY: bedY)
+            axesNode.name = "axes"
+            scene.rootNode.addChildNode(axesNode)
+            context.coordinator.lastBedX = bedX
+            context.coordinator.lastBedY = bedY
+        }
+
         guard context.coordinator.lastGeometry !== geometry else { return }
         context.coordinator.lastGeometry = geometry
 
@@ -116,23 +142,34 @@ struct STLSceneView: UIViewRepresentable {
 
 // MARK: - Print bed grid
 
-private func makePrintBedNode() -> SCNNode {
-    let gridSize: Float = 1.6
-    let divisions  = 10
-    let step = gridSize / Float(divisions)
-    let half = gridSize / 2
+// Scale: 1 SceneKit unit = 100 mm.
+// Grid lines are spaced at ~20 mm intervals (divisions = bedSize / 20).
+private func makePrintBedNode(bedX: Double, bedY: Double) -> SCNNode {
+    let scaleX = Float(bedX) / 100
+    let scaleZ = Float(bedY) / 100
+    let halfX  = scaleX / 2
+    let halfZ  = scaleZ / 2
+
+    // Exactly 10 mm per cell
+    let divX = max(Int(bedX / 10), 1)
+    let divZ = max(Int(bedY / 10), 1)
+    let stepX = scaleX / Float(divX)
+    let stepZ = scaleZ / Float(divZ)
 
     var vertices: [SCNVector3] = []
     var indices:  [Int32]      = []
     var idx: Int32 = 0
 
-    for i in 0...divisions {
-        let t = -half + Float(i) * step
-        // Lines along X
-        vertices.append(SCNVector3(-half, 0, t)); vertices.append(SCNVector3(half, 0, t))
+    // Lines along X (constant Z)
+    for i in 0...divZ {
+        let z = -halfZ + Float(i) * stepZ
+        vertices.append(SCNVector3(-halfX, 0, z)); vertices.append(SCNVector3(halfX, 0, z))
         indices.append(contentsOf: [idx, idx + 1]); idx += 2
-        // Lines along Z
-        vertices.append(SCNVector3(t, 0, -half)); vertices.append(SCNVector3(t, 0, half))
+    }
+    // Lines along Z (constant X)
+    for i in 0...divX {
+        let x = -halfX + Float(i) * stepX
+        vertices.append(SCNVector3(x, 0, -halfZ)); vertices.append(SCNVector3(x, 0, halfZ))
         indices.append(contentsOf: [idx, idx + 1]); idx += 2
     }
 
@@ -151,35 +188,35 @@ private func makePrintBedNode() -> SCNNode {
 //   Y (green) → SceneKit -Z  (Cura forward, -90° rotation maps STL Y → SceneKit -Z)
 //   Z (blue)  → SceneKit +Y  (Cura up,      -90° rotation maps STL Z → SceneKit +Y)
 
-private func makeAxesNode() -> SCNNode {
+private func makeAxesNode(bedX: Double, bedY: Double) -> SCNNode {
     let root = SCNNode()
 
-    // Arrow dimensions (in normalised scene units)
-    let shaftLen:   CGFloat = 0.18
-    let shaftR:     CGFloat = 0.009
-    let headLen:    CGFloat = 0.065
-    let headR:      CGFloat = 0.022
+    // Scale arrow size proportionally to the bed (aim for ~15% of the shorter dimension)
+    let shortSide = Float(min(bedX, bedY)) / 100
+    let arrowScale = shortSide * 0.15
+
+    let shaftLen: CGFloat = CGFloat(arrowScale)
+    let shaftR:   CGFloat = CGFloat(arrowScale) * 0.05
+    let headLen:  CGFloat = CGFloat(arrowScale) * 0.36
+    let headR:    CGFloat = CGFloat(arrowScale) * 0.12
 
     // X — red, points in SceneKit +X
-    //   default cylinder is along +Y; rotate -90° around Z to point in +X
     root.addChildNode(arrow(shaft: shaftLen, shaftR: shaftR, head: headLen, headR: headR,
                             color: UIColor(red: 0.95, green: 0.2, blue: 0.2, alpha: 1),
                             euler: SCNVector3(0, 0, -Float.pi / 2)))
-
     // Y — green, points in SceneKit -Z (Cura Y = forward)
-    //   rotate -90° around X to point in -Z
     root.addChildNode(arrow(shaft: shaftLen, shaftR: shaftR, head: headLen, headR: headR,
                             color: UIColor(red: 0.2, green: 0.85, blue: 0.3, alpha: 1),
                             euler: SCNVector3(-Float.pi / 2, 0, 0)))
-
     // Z — blue, points in SceneKit +Y (Cura Z = up)
-    //   no rotation needed; cylinder already points in +Y
     root.addChildNode(arrow(shaft: shaftLen, shaftR: shaftR, head: headLen, headR: headR,
                             color: UIColor(red: 0.2, green: 0.5, blue: 1.0, alpha: 1),
                             euler: SCNVector3(0, 0, 0)))
 
-    // Place at front-left corner of grid, just above the plane
-    root.position = SCNVector3(-0.68, 0.01, 0.68)
+    // Place at front-left corner of bed, just above the plane
+    let halfX = Float(bedX) / 200
+    let halfZ = Float(bedY) / 200
+    root.position = SCNVector3(-halfX, 0.01, halfZ)
     return root
 }
 
@@ -215,4 +252,6 @@ final class Coordinator: NSObject {
     weak var meshNode:   SCNNode?
     weak var cameraNode: SCNNode?
     var lastGeometry: SCNGeometry? = nil
+    var lastBedX: Double = 0
+    var lastBedY: Double = 0
 }

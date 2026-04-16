@@ -56,7 +56,11 @@ struct ContentView: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             // Full-screen 3D viewer
-            STLSceneView(geometry: loadedSTLGeometry)
+            STLSceneView(
+                geometry: loadedSTLGeometry,
+                bedX: profileStore.selectedProfile?.bedX ?? 220,
+                bedY: profileStore.selectedProfile?.bedY ?? 220
+            )
                 .ignoresSafeArea()
                 .overlay {
                     if isParsingSTL {
