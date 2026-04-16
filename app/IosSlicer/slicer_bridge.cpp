@@ -184,7 +184,17 @@ int slicer_load_stl(SlicerHandle handle, const char* path) {
         double cy = ctx->origin_at_center ? 0.0 : ctx->bed_y / 2.0;
         Slic3r::Vec2d bed_centre(cx, cy);
         for (auto* obj : ctx->model.objects) {
+            // center_around_origin() centers the mesh in X, Y, *and* Z.
+            // After this call the mesh runs from -h/2 to +h/2 in Z with
+            // all instance Z-offsets at 0, so we must shift each instance
+            // up by h/2 to place the model bottom on the build plate (Z=0).
             obj->center_around_origin();
+            Slic3r::BoundingBoxf3 bb = obj->raw_bounding_box();
+            double shift_z = -bb.min.z();  // distance from mesh bottom to Z=0
+            for (auto* inst : obj->instances) {
+                Slic3r::Vec3d off = inst->get_offset();
+                inst->set_offset(Slic3r::Vec3d(off.x(), off.y(), off.z() + shift_z));
+            }
         }
         ctx->model.center_instances_around_point(bed_centre);
 

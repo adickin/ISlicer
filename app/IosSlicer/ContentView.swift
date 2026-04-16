@@ -8,7 +8,7 @@ import SceneKit
 enum SliceState {
     case idle
     case slicing(phase: String, progress: Double)
-    case done(gcodeURL: URL)
+    case done(gcodeURL: URL, printTime: String?, filamentG: String?)
     case failed(message: String)
 }
 
@@ -80,7 +80,7 @@ struct ContentView: View {
             }
         }
         .sheet(isPresented: $showShareSheet) {
-            if case .done(let url) = state {
+            if case .done(let url, _, _) = state {
                 ShareSheetView(items: [url]).ignoresSafeArea()
             }
         }
@@ -196,8 +196,8 @@ struct ContentView: View {
             return profileStore.selectedProfile?.name ?? "No printer selected"
         case .slicing(let phase, _):
             return phase
-        case .done:
-            return "Done"
+        case .done(_, let time, _):
+            return time.map { "Done · \($0)" } ?? "Done"
         case .failed:
             return "Error — tap to expand"
         }
@@ -341,7 +341,11 @@ struct ContentView: View {
         switch state {
         case .idle:                 return "Ready to slice."
         case .slicing(let p, _):   return p
-        case .done(let url):       return "Done! G-code saved:\n\(url.lastPathComponent)"
+        case .done(let url, let time, let filament):
+            var msg = "Done! \(url.lastPathComponent)"
+            if let t = time { msg += "\nTime: \(t)" }
+            if let f = filament { msg += "\nFilament: \(f) g" }
+            return msg
         case .failed(let msg):     return "Error: \(msg)"
         }
     }
@@ -370,7 +374,7 @@ struct ContentView: View {
                 .controlSize(.large)
             }
 
-            if case .done(let url) = state {
+            if case .done(let url, _, _) = state {
                 Button {
                     showShareSheet = true
                 } label: {
@@ -546,7 +550,32 @@ struct ContentView: View {
             return
         }
 
-        await MainActor.run { state = .done(gcodeURL: gcodeURL) }
+        // 9. Parse print time + filament estimate from G-code comments
+        let (printTime, filamentG) = parseGCodeStats(url: gcodeURL)
+
+        await MainActor.run { state = .done(gcodeURL: gcodeURL, printTime: printTime, filamentG: filamentG) }
+    }
+
+    // MARK: G-code stats parsing
+
+    /// Scans the exported G-code for PrusaSlicer's time and filament comment lines:
+    ///   ; estimated printing time (normal mode) = 1h 23m 45s
+    ///   ; filament used [g] = 10.53
+    private func parseGCodeStats(url: URL) -> (printTime: String?, filamentG: String?) {
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return (nil, nil) }
+        var printTime: String?
+        var filamentG: String?
+        for line in text.components(separatedBy: "\n") {
+            let s = line.trimmingCharacters(in: .whitespaces)
+            if printTime == nil, s.hasPrefix("; estimated printing time (normal mode) =") {
+                printTime = s.components(separatedBy: "=").last?.trimmingCharacters(in: .whitespaces)
+            }
+            if filamentG == nil, s.hasPrefix("; filament used [g] =") {
+                filamentG = s.components(separatedBy: "=").last?.trimmingCharacters(in: .whitespaces)
+            }
+            if printTime != nil && filamentG != nil { break }
+        }
+        return (printTime, filamentG)
     }
 
     // MARK: Profiles → C bridge
