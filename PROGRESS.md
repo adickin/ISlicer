@@ -23,35 +23,6 @@
 - [ ] **Seam position** — aligned / nearest / random (`seam_position` key)
 - [ ] **Extrusion width overrides** — per-feature extrusion width (perimeter, infill, top solid) for fine-tuning on non-standard nozzle sizes
 
-### Material Profiles
-*Retraction, Z-hop, and cooling/fan settings live here — not in slice profiles — because they are material-dependent (PrusaSlicer filament profile architecture).*
-
-**Data model + persistence**
-- [ ] `MaterialProfile` struct — Codable; maps to PrusaSlicer filament config keys
-  - Name, filament diameter (mm)
-  - Hotend temperature — first layer + other layers (`first_layer_temperature`, `temperature`)
-  - Bed temperature — first layer + other layers (`first_layer_bed_temperature`, `bed_temperature`)
-  - Flow rate / extrusion multiplier (%; `extrusion_multiplier`)
-  - Enable retraction (`retract_length > 0` gate in bridge)
-  - Retraction length (mm; `retract_length`)
-  - Retraction speed (mm/s; `retract_speed`)
-  - Z-hop when retracted (mm; `retract_lift`)
-  - Min travel before retraction (mm; `retract_before_travel`)
-  - Enable cooling (`cooling`)
-  - Min fan speed (%; `min_fan_speed`)
-  - Max fan speed (%; `max_fan_speed`)
-  - Bridge fan speed (%; `bridge_fan_speed`)
-  - Disable fan for first N layers (`disable_fan_first_layers`)
-- [ ] `MaterialProfileStore` — same pattern as `ProfileStore` / `SliceProfileStore`
-- [ ] `BuiltInMaterialProfiles` — PLA, PETG, ABS, TPU with sensible defaults
-
-**C bridge**
-- [ ] `SlicerMaterialConfig` C struct + `slicer_apply_material_config()` in `slicer_bridge.h/.cpp`
-
-**UI**
-- [ ] `MaterialProfileEditorView` — Form with Temperatures / Retraction / Cooling sections
-- [ ] `MaterialProfilePickerView` — list with summary subtitle (name · temp · retraction on/off)
-- [ ] `ContentView` — "Material: [Name]" row, calls `slicer_apply_material_config` before slicing
 
 ### Model Manipulation
 - [ ] **Rotation** — 3-axis rotate with snap-to-face
@@ -75,6 +46,17 @@
 
 
 ## Completed
+
+### Material Profiles (2026-04-15)
+Plan: `Plans/material_profiles.md`
+- [x] `MaterialProfile` struct — Codable; filament diameter, temperatures (first layer + other, hotend + bed), extrusion multiplier, retraction (length/speed/restart extra/Z-hop/min travel), cooling/fan (min/max/bridge speed, disable-first-N-layers, fan-below-layer-time, slowdown-below-layer-time, min-print-speed)
+- [x] `MaterialProfileStore` — same `@MainActor ObservableObject` pattern as `ProfileStore` / `SliceProfileStore`; JSON to `material_profiles.json`; seed version bump
+- [x] `BuiltInMaterialProfiles` — PLA, PETG, ABS, TPU with sensible defaults including cooling/retraction differences per material
+- [x] `SlicerMaterialConfig` C struct + `slicer_apply_material_config()` in `slicer_bridge.h/.cpp`; all per-extruder keys wrapped in single-element vectors; `retract_length=0` disables retraction natively
+- [x] `MaterialProfileEditorView` — Form with Name / Filament & Temperature / Retraction / Cooling sections; sub-fields hidden behind toggles
+- [x] `MaterialProfilePickerView` — circle-checkmark select, row-tap to edit, swipe-to-delete, + button
+- [x] `ContentView` — "Material" row (drop icon) below slice profile row; `applyMaterialProfile()` called before slicing (optional — slicing proceeds with bridge defaults if no profile selected); call order: printer → material → slice
+- [x] `IosSlicerApp` — `materialProfileStore` as third `@StateObject`, injected as `.environmentObject`, loaded in `.task`
 
 ### Slicing Profiles (2026-04-13)
 Plan: `Plans/slicing_profiles.md`

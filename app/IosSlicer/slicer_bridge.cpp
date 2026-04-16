@@ -471,4 +471,63 @@ int slicer_apply_slice_config(SlicerHandle handle, const SlicerSliceConfig* cfg)
     }
 }
 
+int slicer_apply_material_config(SlicerHandle handle,
+                                 const SlicerMaterialConfig* cfg) {
+    auto ctx = CTX(handle);
+    if (!cfg) return set_err(ctx, "null material config");
+    try {
+        // Filament diameter — overrides the value set by slicer_apply_printer_config
+        ctx->config.set_key_value("filament_diameter",
+            new Slic3r::ConfigOptionFloats({static_cast<double>(cfg->filament_diameter)}));
+
+        // Temperatures
+        ctx->config.set_key_value("first_layer_temperature",
+            new Slic3r::ConfigOptionInts({cfg->first_layer_temperature}));
+        ctx->config.set_key_value("temperature",
+            new Slic3r::ConfigOptionInts({cfg->temperature}));
+        ctx->config.set_key_value("first_layer_bed_temperature",
+            new Slic3r::ConfigOptionInts({cfg->first_layer_bed_temperature}));
+        ctx->config.set_key_value("bed_temperature",
+            new Slic3r::ConfigOptionInts({cfg->bed_temperature}));
+
+        // Flow
+        ctx->config.set_key_value("extrusion_multiplier",
+            new Slic3r::ConfigOptionFloats({static_cast<double>(cfg->extrusion_multiplier)}));
+
+        // Retraction — retract_length == 0 disables retraction natively
+        ctx->config.set_key_value("retract_length",
+            new Slic3r::ConfigOptionFloats({static_cast<double>(cfg->retract_length)}));
+        ctx->config.set_key_value("retract_speed",
+            new Slic3r::ConfigOptionFloats({static_cast<double>(cfg->retract_speed)}));
+        ctx->config.set_key_value("retract_restart_extra",
+            new Slic3r::ConfigOptionFloats({static_cast<double>(cfg->retract_restart_extra)}));
+        ctx->config.set_key_value("retract_lift",
+            new Slic3r::ConfigOptionFloats({static_cast<double>(cfg->retract_lift)}));
+        ctx->config.set_key_value("retract_before_travel",
+            new Slic3r::ConfigOptionFloats({static_cast<double>(cfg->retract_before_travel)}));
+
+        // Fan / cooling
+        ctx->config.set_key_value("cooling",
+            new Slic3r::ConfigOptionBools({cfg->cooling != 0}));
+        ctx->config.set_key_value("min_fan_speed",
+            new Slic3r::ConfigOptionInts({cfg->min_fan_speed}));
+        ctx->config.set_key_value("max_fan_speed",
+            new Slic3r::ConfigOptionInts({cfg->max_fan_speed}));
+        ctx->config.set_key_value("bridge_fan_speed",
+            new Slic3r::ConfigOptionInts({cfg->bridge_fan_speed}));
+        ctx->config.set_key_value("disable_fan_first_layers",
+            new Slic3r::ConfigOptionInts({cfg->disable_fan_first_layers}));
+        ctx->config.set_key_value("fan_below_layer_time",
+            new Slic3r::ConfigOptionInts({cfg->fan_below_layer_time}));
+        ctx->config.set_key_value("slowdown_below_layer_time",
+            new Slic3r::ConfigOptionInts({cfg->slowdown_below_layer_time}));
+        ctx->config.set_key_value("min_print_speed",
+            new Slic3r::ConfigOptionFloats({static_cast<double>(cfg->min_print_speed)}));
+
+        return 0;
+    } catch (const std::exception& e) {
+        return set_err(ctx, e);
+    }
+}
+
 } // extern "C"

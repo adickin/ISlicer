@@ -24,6 +24,7 @@ private final class ProgressRelay: @unchecked Sendable {
 struct ContentView: View {
     @EnvironmentObject var profileStore: ProfileStore
     @EnvironmentObject var sliceProfileStore: SliceProfileStore
+    @EnvironmentObject var materialProfileStore: MaterialProfileStore
 
     @State private var state: SliceState = .idle
     @State private var showShareSheet = false
@@ -31,6 +32,7 @@ struct ContentView: View {
     @State private var showErrorAlert = false
     @State private var showProfilePicker = false
     @State private var showSliceProfilePicker = false
+    @State private var showMaterialProfilePicker = false
     @State private var showNoProfileAlert = false
     @State private var showNoSliceProfileAlert = false
     @State private var isPanelExpanded = true
@@ -83,6 +85,9 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showSliceProfilePicker) {
             SliceProfilePickerView()
+        }
+        .sheet(isPresented: $showMaterialProfilePicker) {
+            MaterialProfilePickerView()
         }
         .alert("Slicing Error", isPresented: $showErrorAlert) {
             Button("OK", role: .cancel) {}
@@ -256,6 +261,25 @@ struct ContentView: View {
                         )
                         .font(.subheadline)
                         .foregroundStyle(sliceProfileStore.selectedProfile == nil ? .red : .primary)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .disabled(isBusy)
+
+                // Material profile row
+                Button {
+                    showMaterialProfilePicker = true
+                } label: {
+                    HStack {
+                        Label(
+                            materialProfileStore.selectedProfile?.name ?? "No Material Selected",
+                            systemImage: "drop"
+                        )
+                        .font(.subheadline)
+                        .foregroundStyle(.primary)
                         Spacer()
                         Image(systemName: "chevron.right")
                             .font(.caption2)
@@ -445,7 +469,17 @@ struct ContentView: View {
             return
         }
 
-        // 5. Apply slice profile
+        // 5. Apply material profile (optional — falls back to bridge defaults if none selected)
+        if let materialProfile = await MainActor.run(body: { materialProfileStore.selectedProfile }) {
+            await setPhase("Applying material profile…")
+            if !applyMaterialProfile(materialProfile, to: handle) {
+                let msg = String(cString: slicer_last_error(handle))
+                await MainActor.run { state = .failed(message: msg) ; showErrorAlert = true }
+                return
+            }
+        }
+
+        // 6. Apply slice profile
         await setPhase("Applying slice profile…")
         if !applySliceProfile(sliceProfile, to: handle) {
             let msg = String(cString: slicer_last_error(handle))
@@ -453,7 +487,7 @@ struct ContentView: View {
             return
         }
 
-        // 6. Load STL
+        // 7. Load STL
         await setPhase("Loading \(URL(fileURLWithPath: stlPath).lastPathComponent)…")
         if slicer_load_stl(handle, stlPath) != 0 {
             let msg = String(cString: slicer_last_error(handle))
@@ -544,6 +578,30 @@ struct ContentView: View {
         return slicer_apply_slice_config(handle, &cfg) == 0
     }
 
+    private func applyMaterialProfile(_ profile: MaterialProfile, to handle: SlicerHandle) -> Bool {
+        var cfg = SlicerMaterialConfig()
+        cfg.filament_diameter            = Float(profile.filamentDiameter)
+        cfg.first_layer_temperature      = Int32(profile.firstLayerTemp)
+        cfg.temperature                  = Int32(profile.otherLayersTemp)
+        cfg.first_layer_bed_temperature  = Int32(profile.firstLayerBedTemp)
+        cfg.bed_temperature              = Int32(profile.otherLayersBedTemp)
+        cfg.extrusion_multiplier         = Float(profile.extrusionMultiplier)
+        cfg.retract_length               = profile.retractionEnabled ? Float(profile.retractionLength) : 0
+        cfg.retract_speed                = Float(profile.retractionSpeed)
+        cfg.retract_restart_extra        = Float(profile.retractionRestartExtra)
+        cfg.retract_lift                 = Float(profile.zHop)
+        cfg.retract_before_travel        = Float(profile.minTravelForRetraction)
+        cfg.cooling                      = profile.coolingEnabled ? 1 : 0
+        cfg.min_fan_speed                = Int32(profile.minFanSpeed)
+        cfg.max_fan_speed                = Int32(profile.maxFanSpeed)
+        cfg.bridge_fan_speed             = Int32(profile.bridgeFanSpeed)
+        cfg.disable_fan_first_layers     = Int32(profile.disableFanFirstLayers)
+        cfg.fan_below_layer_time         = Int32(profile.fanBelowLayerTime)
+        cfg.slowdown_below_layer_time    = Int32(profile.slowdownBelowLayerTime)
+        cfg.min_print_speed              = Float(profile.minPrintSpeed)
+        return slicer_apply_material_config(handle, &cfg) == 0
+    }
+
     private func applyPrinterProfile(_ profile: PrinterProfile, to handle: SlicerHandle) -> Bool {
         let nozzle = Float(profile.extruders.first?.nozzleDiameter ?? 0.4)
         let filament = Float(profile.extruders.first?.compatibleMaterialDiameters.first ?? 1.75)
@@ -621,4 +679,5 @@ struct ShareSheetView: UIViewControllerRepresentable {
     ContentView()
         .environmentObject(ProfileStore())
         .environmentObject(SliceProfileStore())
+        .environmentObject(MaterialProfileStore())
 }

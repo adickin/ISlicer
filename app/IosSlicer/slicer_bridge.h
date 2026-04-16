@@ -137,6 +137,49 @@ typedef struct {
 int slicer_apply_slice_config(SlicerHandle handle,
                               const SlicerSliceConfig* cfg);
 
+// ── Material profile ──────────────────────────────────────────────────────────
+
+// Material (filament) settings passed from Swift into the slicer context.
+// Call before slicer_slice / slicer_slice_with_progress.
+// All temperature/retraction/fan keys are per-extruder arrays in libslic3r;
+// the bridge wraps each scalar in a single-element vector.
+typedef struct {
+    // Filament
+    float filament_diameter;            // mm — filament_diameter[0]
+
+    // Temperatures (°C)
+    int   first_layer_temperature;      // first_layer_temperature[0]
+    int   temperature;                  // temperature[0]
+    int   first_layer_bed_temperature;  // first_layer_bed_temperature[0]
+    int   bed_temperature;              // bed_temperature[0]
+
+    // Flow
+    float extrusion_multiplier;         // extrusion_multiplier[0]
+
+    // Retraction — set retract_length to 0 to disable retraction natively
+    float retract_length;               // mm   — retract_length[0]
+    float retract_speed;                // mm/s — retract_speed[0]
+    float retract_restart_extra;        // mm   — retract_restart_extra[0]: extra pushed after deretraction
+    float retract_lift;                 // mm   — retract_lift[0] (Z-hop)
+    float retract_before_travel;        // mm   — retract_before_travel[0]
+
+    // Cooling / fan
+    int   cooling;                      // bool — cooling[0]
+    int   min_fan_speed;                // %    — min_fan_speed[0]
+    int   max_fan_speed;                // %    — max_fan_speed[0]
+    int   bridge_fan_speed;             // %    — bridge_fan_speed[0]
+    int   disable_fan_first_layers;     // N    — disable_fan_first_layers[0]
+    int   fan_below_layer_time;         // sec  — fan_below_layer_time[0]: enable fan if layer finishes under N sec
+    int   slowdown_below_layer_time;    // sec  — slowdown_below_layer_time[0]: slow down if layer finishes under N sec
+    float min_print_speed;              // mm/s — min_print_speed[0]: floor when cooling slowdown is active
+} SlicerMaterialConfig;
+
+// Apply material settings to the slicer context.
+// Must be called before slicer_slice / slicer_slice_with_progress.
+// Returns 0 on success, negative on error.
+int slicer_apply_material_config(SlicerHandle handle,
+                                 const SlicerMaterialConfig* cfg);
+
 #ifdef __cplusplus
 }
 #endif
