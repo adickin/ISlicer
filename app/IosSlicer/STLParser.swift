@@ -8,6 +8,14 @@ enum ViewerColorMode: CaseIterable, Equatable {
     case overhang      // overhanging faces highlighted in orange-red
     case faceNormal    // RGB derived from face normal direction
 
+    var displayName: String {
+        switch self {
+        case .solid:      return "Solid"
+        case .overhang:   return "Overhang"
+        case .faceNormal: return "Normals"
+        }
+    }
+
     var icon: String {
         switch self {
         case .solid:      return "cube"

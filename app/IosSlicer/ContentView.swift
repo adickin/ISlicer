@@ -153,57 +153,57 @@ struct ContentView: View {
                     // STL-mode controls: only when model is loaded and not in layer preview
                     if !showLayerPreview && loadedSTLGeometry != nil {
                         // Wireframe toggle
-                        Button {
-                            showWireframe.toggle()
-                        } label: {
-                            Image(systemName: "square.3.layers.3d")
-                                .font(.title3)
-                                .padding(10)
-                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 10)
-                                        .strokeBorder(showWireframe ? Color.accentColor : Color.clear, lineWidth: 1.5)
-                                )
-                        }
-                        .buttonStyle(.plain)
+                        overlayButton(
+                            icon: "square.3.layers.3d",
+                            label: showWireframe ? "Wire On" : "Wire Off",
+                            active: showWireframe
+                        ) { showWireframe.toggle() }
 
                         // Colour mode cycle
-                        Button {
-                            viewerColorMode = viewerColorMode.next
-                        } label: {
-                            Image(systemName: viewerColorMode.icon)
-                                .font(.title3)
-                                .padding(10)
-                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 10)
-                                        .strokeBorder(viewerColorMode != .solid ? Color.accentColor : Color.clear, lineWidth: 1.5)
-                                )
-                        }
-                        .buttonStyle(.plain)
+                        overlayButton(
+                            icon: viewerColorMode.icon,
+                            label: viewerColorMode.displayName,
+                            active: viewerColorMode != .solid
+                        ) { viewerColorMode = viewerColorMode.next }
                     }
 
                     // Layer preview toggle — visible when gcode is ready
                     if case .done = state, !parsedLayers.isEmpty {
-                        Button {
-                            showLayerPreview.toggle()
-                        } label: {
-                            Image(systemName: showLayerPreview ? "cube.transparent" : "square.3.layers.3d.slash")
-                                .font(.title3)
-                                .padding(10)
-                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 10)
-                                        .strokeBorder(showLayerPreview ? Color.accentColor : Color.clear, lineWidth: 1.5)
-                                )
-                        }
-                        .buttonStyle(.plain)
+                        overlayButton(
+                            icon: showLayerPreview ? "cube.transparent" : "square.3.layers.3d.slash",
+                            label: showLayerPreview ? "Layers" : "Model",
+                            active: showLayerPreview
+                        ) { showLayerPreview.toggle() }
                     }
                 }
                 .padding(.top, 60)
                 .padding(.trailing, 16)
             }
             Spacer()
+        }
+    }
+
+    /// A labelled floating button for the viewer overlay.
+    /// `active` adds an accent-colour border so the user can see the current state at a glance.
+    @ViewBuilder
+    private func overlayButton(icon: String, label: String, active: Bool, action: @escaping () -> Void) -> some View {
+        VStack(spacing: 3) {
+            Button(action: action) {
+                Image(systemName: icon)
+                    .font(.title3)
+                    .padding(10)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .strokeBorder(active ? Color.accentColor : Color.clear, lineWidth: 1.5)
+                    )
+            }
+            .buttonStyle(.plain)
+
+            Text(label)
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.7), radius: 2, x: 0, y: 1)
         }
     }
 
