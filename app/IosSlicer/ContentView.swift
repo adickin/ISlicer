@@ -37,6 +37,11 @@ struct ContentView: View {
     @State private var showNoSliceProfileAlert = false
     @State private var isPanelExpanded = true
 
+    // Model transform
+    @State private var modelTransform = ModelTransform()
+    @State private var showTransformPanel = false
+    @State private var stlMeshInfo: STLMeshInfo? = nil
+
     /// URL of the STL that has been copied to the temp directory.
     @State private var loadedSTLURL: URL? = nil
     @State private var loadedSTLName: String = "None"
@@ -79,7 +84,9 @@ struct ContentView: View {
                         bedX: profileStore.selectedProfile?.bedX ?? 220,
                         bedY: profileStore.selectedProfile?.bedY ?? 220,
                         showWireframe: showWireframe,
-                        stlURL: loadedSTLURL
+                        stlURL: loadedSTLURL,
+                        modelTransform: modelTransform,
+                        onTransformChange: { modelTransform = $0 }
                     )
                     .overlay {
                         if isParsingSTL {
@@ -124,6 +131,15 @@ struct ContentView: View {
         .sheet(isPresented: $showMaterialProfilePicker) {
             MaterialProfilePickerView()
         }
+        .sheet(isPresented: $showTransformPanel) {
+            TransformPanelView(
+                transform: $modelTransform,
+                meshInfo: stlMeshInfo,
+                bedX: profileStore.selectedProfile?.bedX ?? 220,
+                bedY: profileStore.selectedProfile?.bedY ?? 220,
+                bedZ: profileStore.selectedProfile?.bedZ ?? 250
+            )
+        }
         .alert("Slicing Error", isPresented: $showErrorAlert) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -165,6 +181,13 @@ struct ContentView: View {
                             label: viewerColorMode.displayName,
                             active: viewerColorMode != .solid
                         ) { viewerColorMode = viewerColorMode.next }
+
+                        // Open numeric transform panel
+                        overlayButton(
+                            icon: "slider.vertical.3",
+                            label: "Values",
+                            active: !modelTransform.isIdentity
+                        ) { showTransformPanel = true }
                     }
 
                     // Layer preview toggle — visible when gcode is ready
@@ -523,10 +546,16 @@ struct ContentView: View {
             loadedSTLURL = dest
             loadedSTLName = url.lastPathComponent
             state = .idle
-            // Reset layer preview when a new model is loaded
+            // Reset layer preview and transform when a new model is loaded
             showLayerPreview = false
             parsedLayers = []
+            modelTransform = .identity
+            stlMeshInfo = nil
             parseSTLPreview(url: dest)
+            Task.detached(priority: .background) {
+                let info = try? parseSTLMeshInfo(url: dest)
+                await MainActor.run { stlMeshInfo = info }
+            }
         } catch {
             state = .failed(message: "Could not import STL: \(error.localizedDescription)")
             showErrorAlert = true

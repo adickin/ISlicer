@@ -31,6 +31,48 @@ enum ViewerColorMode: CaseIterable, Equatable {
     }
 }
 
+// MARK: - Mesh info (for transform helpers)
+
+struct STLMeshInfo {
+    struct Face {
+        let normal: SIMD3<Float>    // unit normal in STL space
+        let area: Float
+    }
+    let faces: [Face]
+    /// Bounding box in raw STL coordinates (mm).
+    let boundingBoxMM: (min: SIMD3<Float>, max: SIMD3<Float>)
+
+    /// Size in the STL X direction (mm) — maps to viewer X (left/right).
+    var sizeMMX: Float { boundingBoxMM.max.x - boundingBoxMM.min.x }
+    /// Size in the STL Y direction (mm) — maps to viewer -Z (depth).
+    var sizeMMY: Float { boundingBoxMM.max.y - boundingBoxMM.min.y }
+    /// Size in the STL Z direction (mm) — maps to viewer Y (height).
+    var sizeMMZ: Float { boundingBoxMM.max.z - boundingBoxMM.min.z }
+}
+
+func parseSTLMeshInfo(url: URL) throws -> STLMeshInfo {
+    let data = try Data(contentsOf: url)
+    guard data.count > 84 else { throw STLParseError.cannotReadFile }
+    let triangles: [(SIMD3<Float>, SIMD3<Float>, SIMD3<Float>)]
+    if isASCII(data) { triangles = try parseASCII(data) }
+    else              { triangles = try parseBinary(data) }
+    guard !triangles.isEmpty else { throw STLParseError.emptyMesh }
+
+    var faces: [STLMeshInfo.Face] = []
+    faces.reserveCapacity(triangles.count)
+    var minPt = SIMD3<Float>(repeating:  Float.infinity)
+    var maxPt = SIMD3<Float>(repeating: -Float.infinity)
+
+    for (v0, v1, v2) in triangles {
+        for v in [v0, v1, v2] { minPt = min(minPt, v); maxPt = max(maxPt, v) }
+        let cross = simd_cross(v1 - v0, v2 - v0)
+        let len   = simd_length(cross)
+        let n     = len > 1e-10 ? cross / len : SIMD3<Float>(0, 0, 1)
+        faces.append(STLMeshInfo.Face(normal: n, area: len * 0.5))
+    }
+    return STLMeshInfo(faces: faces, boundingBoxMM: (minPt, maxPt))
+}
+
 // MARK: - Error
 
 enum STLParseError: Error {
