@@ -21,12 +21,14 @@ _(all items complete — see Plans/viewer_features.md)_
 
 
 ### Model Manipulation
-- [ ] **Rotation** — 3-axis rotate with snap-to-face
-- [ ] **Scale** — uniform + per-axis, with "fit to bed" shortcut
-- [ ] **Auto-orient** — rotate to minimize support area
-- [ ] **Multi-model** — place and arrange multiple objects on the bed
-- [ ] **Cut tool** — slice model at a Z height (useful for models taller than the printer)
-- [ ] **Model placement UI** — move / rotate / scale model interactively in the 3D viewer
+Plan: `Plans/model_manipulation.md`
+- [x] **Transform controls** — `ModelTransform` state (positionMM / rotationDeg / scale); `pivotNode` in `STLSceneView` applies transform live; `TransformPanelView` sheet with Move / Rotate / Scale sections (2026-04-17)
+- [x] **Snap-to-face** — "Lay Flat" button in rotate section; picks largest downward-facing face via `STLMeshInfo` normals + area weighting; converts to SceneKit Euler angles via quaternion (2026-04-17)
+- [x] **Fit to bed / Center / Drop to bed** — helper buttons in Move and Scale sections; "Fit to Bed" scales to 90% of bed footprint (2026-04-17)
+- [x] **Interactive 3D translate gizmo** — world-aligned X/Y/Z arrows follow model; tap "Move" overlay button to enter transform mode (disables orbit); drag an arrow to translate along that axis; gizmo scales with model; "Orbit" button returns to camera control (2026-04-18)
+- [ ] **Auto-orient** — rotate to minimize support area; scores candidate rotations by overhang (Phase 6)
+- [ ] **Cut tool** — Z-height slider + live cut-plane preview; `slicer_cut_at_z` C bridge call (Phase 7)
+- [ ] **Multi-model** — `[ModelInstance]` state, add/remove/select models, auto-arrange on bed (Phase 8)
 
 ### Infrastructure
 - [ ] **Proper bundleId** — replace `com.yourname` placeholder in `project.yml`

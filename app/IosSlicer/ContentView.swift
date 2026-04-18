@@ -37,10 +37,12 @@ struct ContentView: View {
     @State private var showNoSliceProfileAlert = false
     @State private var isPanelExpanded = true
 
-    // Model transform
+    // Model transform + gizmo
     @State private var modelTransform = ModelTransform()
     @State private var showTransformPanel = false
     @State private var stlMeshInfo: STLMeshInfo? = nil
+    @State private var gizmoMode: GizmoMode = .translate
+    @State private var isModelSelected = false
 
     /// URL of the STL that has been copied to the temp directory.
     @State private var loadedSTLURL: URL? = nil
@@ -86,7 +88,9 @@ struct ContentView: View {
                         showWireframe: showWireframe,
                         stlURL: loadedSTLURL,
                         modelTransform: modelTransform,
-                        onTransformChange: { modelTransform = $0 }
+                        gizmoMode: gizmoMode,
+                        onTransformChange: { modelTransform = $0 },
+                        onSelectionChange: { isModelSelected = $0 }
                     )
                     .overlay {
                         if isParsingSTL {
@@ -188,6 +192,28 @@ struct ContentView: View {
                             label: "Values",
                             active: !modelTransform.isIdentity
                         ) { showTransformPanel = true }
+
+                        // Gizmo mode picker — visible when model is selected
+                        if isModelSelected {
+                            Divider()
+                                .frame(width: 36)
+                                .padding(.vertical, 2)
+                            overlayButton(
+                                icon: "move.3d",
+                                label: "Move",
+                                active: gizmoMode == .translate
+                            ) { gizmoMode = .translate }
+                            overlayButton(
+                                icon: "rotate.3d",
+                                label: "Rotate",
+                                active: gizmoMode == .rotate
+                            ) { gizmoMode = .rotate }
+                            overlayButton(
+                                icon: "scale.3d",
+                                label: "Scale",
+                                active: gizmoMode == .scale
+                            ) { gizmoMode = .scale }
+                        }
                     }
 
                     // Layer preview toggle — visible when gcode is ready
@@ -546,11 +572,13 @@ struct ContentView: View {
             loadedSTLURL = dest
             loadedSTLName = url.lastPathComponent
             state = .idle
-            // Reset layer preview and transform when a new model is loaded
+            // Reset state when a new model is loaded
             showLayerPreview = false
             parsedLayers = []
             modelTransform = .identity
             stlMeshInfo = nil
+            isModelSelected = false
+            gizmoMode = .translate
             parseSTLPreview(url: dest)
             Task.detached(priority: .background) {
                 let info = try? parseSTLMeshInfo(url: dest)
