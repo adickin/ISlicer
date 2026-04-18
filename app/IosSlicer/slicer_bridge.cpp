@@ -12,6 +12,8 @@
 #include <stdexcept>
 #include <cstring>
 #include <functional>
+#include <cmath>
+#include <limits>
 
 // ── libslic3r core ────────────────────────────────────────────────────────────
 #include <libslic3r/libslic3r.h>
@@ -534,6 +536,98 @@ int slicer_apply_material_config(SlicerHandle handle,
         ctx->config.set_key_value("min_print_speed",
             new Slic3r::ConfigOptionFloats({static_cast<double>(cfg->min_print_speed)}));
 
+        return 0;
+    } catch (const std::exception& e) {
+        return set_err(ctx, e);
+    }
+}
+
+int slicer_set_model_transform(SlicerHandle handle,
+                               const SlicerModelTransform* t)
+{
+    auto ctx = CTX(handle);
+    if (!t) return set_err(ctx, "null model transform");
+    try {
+        double bed_cx = ctx->origin_at_center ? 0.0 : ctx->bed_x / 2.0;
+        double bed_cy = ctx->origin_at_center ? 0.0 : ctx->bed_y / 2.0;
+
+        // Scale mapping: SceneKit(X,Y,Z) → STL(X, -Z_sign, Y_stl)
+        //   SceneKit X → STL X: scale_x unchanged
+        //   SceneKit Y → STL Z: scale_y becomes STL Z scale
+        //   SceneKit Z → STL Y: scale_z becomes STL Y scale
+        double sx = static_cast<double>(t->scale_x);  // STL X scale
+        double sy = static_cast<double>(t->scale_z);  // STL Y scale  (SceneKit Z → STL Y)
+        double sz = static_cast<double>(t->scale_y);  // STL Z scale  (SceneKit Y → STL Z)
+
+        // Convert SceneKit ZYX Euler angles (degrees) to Slic3r ZYX Euler angles (radians)
+        // in STL/Slic3r space via: R_stl = Rx(+90°) * R_sc * Rx(-90°)
+        // where Rx(+90°) converts from STL space to SceneKit space.
+        double rx_d = static_cast<double>(t->rot_x_deg) * M_PI / 180.0;
+        double ry_d = static_cast<double>(t->rot_y_deg) * M_PI / 180.0;
+        double rz_d = static_cast<double>(t->rot_z_deg) * M_PI / 180.0;
+
+        double cxr = cos(rx_d), sxr = sin(rx_d);
+        double cyr = cos(ry_d), syr = sin(ry_d);
+        double czr = cos(rz_d), szr = sin(rz_d);
+
+        // R_stl elements (row 0, 1, 2 of Rx(+90°) * Rz(rz)*Ry(ry)*Rx(rx) * Rx(-90°)):
+        // Row 2 is needed for min-Z computation and Euler extraction.
+        double stl00 = czr * cyr;
+        double stl10 = syr;
+        double stl20 = szr * cyr;
+        double stl21 = czr * sxr - szr * syr * cxr;
+        double stl22 = szr * syr * sxr + czr * cxr;
+        // For gimbal lock branch:
+        double stl01 = -(czr * syr * cxr + szr * sxr);
+        double stl11 = cyr * cxr;
+
+        // Extract ZYX Euler angles for Slic3r from the R_stl matrix.
+        // R_stl = Rz(ez)*Ry(ey)*Rx(ex) → R[2][0] = -sin(ey)
+        double sin_ey = -stl20;
+        double rx_stl, ry_stl, rz_stl;
+        if (std::abs(sin_ey) < 0.9999) {
+            ry_stl = std::asin(sin_ey);
+            rx_stl = std::atan2(stl21, stl22);
+            rz_stl = std::atan2(stl10, stl00);
+        } else {
+            // Gimbal lock (ry ≈ ±90°): set rz=0 and recover rx from remaining DOF.
+            ry_stl = (sin_ey > 0) ? M_PI / 2.0 : -M_PI / 2.0;
+            rx_stl = std::atan2(-stl01, stl11);
+            rz_stl = 0.0;
+        }
+
+        // Compute min world Z of the scaled+rotated mesh (for drop-to-bed).
+        // Transform all 8 AABB corners of the raw (centered) mesh, apply scale
+        // then rotation, keep track of the minimum Z component.
+        double min_z = std::numeric_limits<double>::max();
+        for (auto* obj : ctx->model.objects) {
+            Slic3r::BoundingBoxf3 raw_bb = obj->raw_bounding_box();
+            double xs[2] = { raw_bb.min.x() * sx, raw_bb.max.x() * sx };
+            double ys[2] = { raw_bb.min.y() * sy, raw_bb.max.y() * sy };
+            double zs[2] = { raw_bb.min.z() * sz, raw_bb.max.z() * sz };
+            for (int i = 0; i < 2; ++i)
+            for (int j = 0; j < 2; ++j)
+            for (int k = 0; k < 2; ++k) {
+                double wz = stl20 * xs[i] + stl21 * ys[j] + stl22 * zs[k];
+                if (wz < min_z) min_z = wz;
+            }
+        }
+        double drop_z = (min_z < std::numeric_limits<double>::max()) ? -min_z : 0.0;
+
+        // Apply transform to every instance of every object.
+        // pos_x_mm: SceneKit X → STL X (same direction)
+        // pos_z_mm: SceneKit Z → -STL Y (sign-flipped depth axis)
+        double inst_x = bed_cx + static_cast<double>(t->pos_x_mm);
+        double inst_y = bed_cy - static_cast<double>(t->pos_z_mm);
+        double inst_z = drop_z;   // model bottom placed at Z=0
+
+        for (auto* obj : ctx->model.objects) {
+            for (auto* inst : obj->instances) {
+                inst->set_scaling_factor(Slic3r::Vec3d(sx, sy, sz));
+                inst->set_rotation(Slic3r::Vec3d(rx_stl, ry_stl, rz_stl));
+                inst->set_offset(Slic3r::Vec3d(inst_x, inst_y, inst_z));
+            }
+        }
         return 0;
     } catch (const std::exception& e) {
         return set_err(ctx, e);

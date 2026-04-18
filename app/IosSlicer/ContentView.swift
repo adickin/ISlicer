@@ -655,6 +655,23 @@ struct ContentView: View {
             return
         }
 
+        // 7a. Apply model transform (position/rotation/scale from the 3D viewer)
+        let currentTransform = await MainActor.run(body: { modelTransform })
+        var mt = SlicerModelTransform()
+        mt.pos_x_mm  = currentTransform.positionMM.x
+        mt.pos_z_mm  = currentTransform.positionMM.z
+        mt.rot_x_deg = currentTransform.rotationDeg.x
+        mt.rot_y_deg = currentTransform.rotationDeg.y
+        mt.rot_z_deg = currentTransform.rotationDeg.z
+        mt.scale_x   = currentTransform.scale.x
+        mt.scale_y   = currentTransform.scale.y
+        mt.scale_z   = currentTransform.scale.z
+        if slicer_set_model_transform(handle, &mt) != 0 {
+            let msg = String(cString: slicer_last_error(handle))
+            await MainActor.run { state = .failed(message: msg) ; showErrorAlert = true }
+            return
+        }
+
         // 8. Slice with progress
         let lhStr = String(format: "%.2g", sliceProfile.layerHeight)
         await setPhase("Slicing at \(lhStr) mm / \(sliceProfile.infillDensity)% infill…")

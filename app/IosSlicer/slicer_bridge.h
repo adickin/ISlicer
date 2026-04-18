@@ -180,6 +180,36 @@ typedef struct {
 int slicer_apply_material_config(SlicerHandle handle,
                                  const SlicerMaterialConfig* cfg);
 
+// ── Model transform ───────────────────────────────────────────────────────────
+
+// User transform from the 3D viewer (SceneKit coordinate space).
+// Call after slicer_load_stl and before slicer_slice / slicer_slice_with_progress.
+//
+// Coordinate mapping (SceneKit → STL/Slic3r):
+//   SceneKit X  →  STL X     (same axis)
+//   SceneKit Y  →  STL Z     (up in both, but SceneKit Y = STL Z)
+//   SceneKit Z  → -STL Y     (depth axis, sign-flipped)
+//
+// pos_x_mm / pos_z_mm: XY offset from bed centre in mm (SceneKit X / SceneKit Z).
+// rot_*_deg: ZYX Euler angles as used by SceneKit, in degrees.
+// scale_*: per-axis scale factors (SceneKit X/Y/Z).
+typedef struct {
+    float pos_x_mm;   // SceneKit X offset from bed centre  → Slic3r X delta
+    float pos_z_mm;   // SceneKit Z offset from bed centre  → negated Slic3r Y delta
+    float rot_x_deg;  // SceneKit Euler X (degrees)
+    float rot_y_deg;  // SceneKit Euler Y (degrees)
+    float rot_z_deg;  // SceneKit Euler Z (degrees)
+    float scale_x;    // SceneKit scale X → Slic3r scale X
+    float scale_y;    // SceneKit scale Y → Slic3r scale Z
+    float scale_z;    // SceneKit scale Z → Slic3r scale Y
+} SlicerModelTransform;
+
+// Apply the viewer model transform to the loaded model.
+// Drops the model to the bed (Z=0) automatically after rotation/scale.
+// Returns 0 on success, negative on error.
+int slicer_set_model_transform(SlicerHandle handle,
+                               const SlicerModelTransform* t);
+
 #ifdef __cplusplus
 }
 #endif
