@@ -640,16 +640,23 @@ struct ContentView: View {
         }
         let relayPtr = Unmanaged.passRetained(relay).toOpaque()
 
-        let sliceResult = slicer_slice_with_progress(
-            handle,
-            Float(sliceProfile.layerHeight),
-            Int32(sliceProfile.infillDensity),
-            { pct, ctx in
-                guard let ctx else { return }
-                Unmanaged<ProgressRelay>.fromOpaque(ctx).takeUnretainedValue().handler(pct)
-            },
-            relayPtr
-        )
+        // Run the blocking C++ call on a DispatchQueue thread so it does not
+        // occupy a cooperative-thread-pool thread and starve UI/async updates.
+        let sliceResult = await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let result = slicer_slice_with_progress(
+                    handle,
+                    Float(sliceProfile.layerHeight),
+                    Int32(sliceProfile.infillDensity),
+                    { pct, ctx in
+                        guard let ctx else { return }
+                        Unmanaged<ProgressRelay>.fromOpaque(ctx).takeUnretainedValue().handler(pct)
+                    },
+                    relayPtr
+                )
+                continuation.resume(returning: result)
+            }
+        }
         Unmanaged<ProgressRelay>.fromOpaque(relayPtr).release()
 
         if sliceResult != 0 {
