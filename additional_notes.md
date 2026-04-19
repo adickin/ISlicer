@@ -1,4 +1,4 @@
-# Additional Notes — IosSlicer
+# Additional Notes — SlicePal
 
 Reference material removed from CLAUDE.md for brevity. Still accurate as of initial setup.
 

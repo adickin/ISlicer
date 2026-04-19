@@ -19,7 +19,7 @@ GNU Affero General Public License for more details.
 This project embeds **libslic3r**, the core slicing library from
 [PrusaSlicer](https://github.com/prusa3d/PrusaSlicer), which is licensed
 under the GNU Affero General Public License v3.0. As a derivative work,
-IosSlicer is required to be distributed under the same license.
+SlicePal is required to be distributed under the same license.
 
 The AGPL-3.0 extends the GPL to cover network use: if you run a modified
 version of this software as a service (even without distributing binaries),

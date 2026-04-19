@@ -1,4 +1,4 @@
-# IosSlicer — Feature Progress
+# SlicePal — Feature Progress
 
 ## To Do
 
@@ -62,7 +62,7 @@ Plan: `Plans/material_profiles.md`
 - [x] `MaterialProfileEditorView` — Form with Name / Filament & Temperature / Retraction / Cooling sections; sub-fields hidden behind toggles
 - [x] `MaterialProfilePickerView` — circle-checkmark select, row-tap to edit, swipe-to-delete, + button
 - [x] `ContentView` — "Material" row (drop icon) below slice profile row; `applyMaterialProfile()` called before slicing (optional — slicing proceeds with bridge defaults if no profile selected); call order: printer → material → slice
-- [x] `IosSlicerApp` — `materialProfileStore` as third `@StateObject`, injected as `.environmentObject`, loaded in `.task`
+- [x] `SlicePalApp` — `materialProfileStore` as third `@StateObject`, injected as `.environmentObject`, loaded in `.task`
 
 ### Slicing Profiles (2026-04-13)
 Plan: `Plans/slicing_profiles.md`
@@ -80,7 +80,7 @@ Plan: `Plans/slicing_profiles.md`
 - [x] `SliceProfilePickerView` — circle-checkmark select, row-tap to edit, swipe-to-delete, + button; subtitle shows live profile summary
 - [x] `SliceProfileHelpView` — full plain-English descriptions for every setting, organized by section, presented as a sheet from the editor
 - [x] `ContentView` — "Slice Profile" row (slider icon) alongside printer row; guards slice if no profile selected; calls `slicer_apply_slice_config` before every slice; status subtitle and gcode filename reflect the active profile
-- [x] `IosSlicerApp` — `SliceProfileStore` as second `@StateObject`, injected as `.environmentObject`, loaded in `.task`
+- [x] `SlicePalApp` — `SliceProfileStore` as second `@StateObject`, injected as `.environmentObject`, loaded in `.task`
 
 ### Printer Profiles (2026-04-13)
 - [x] `GCodeFlavor` enum — 12 flavors with `bridgeInt` mapping to PrusaSlicer's `GCodeFlavor` enum order
@@ -94,7 +94,7 @@ Plan: `Plans/slicing_profiles.md`
 - [x] `ProfilePickerView` — list with circle-checkmark select, row-tap to edit, swipe-to-delete, + button
 - [x] `slicer_bridge` — `SlicerPrinterConfig` C struct + `slicer_apply_printer_config()`; `kFlavorMap[]` keeps Swift `bridgeInt` and C++ enum in sync
 - [x] `ContentView` — profile row shows active printer name; "No Printer Selected" alert guards slice; `applyPrinterProfile()` called before every slice
-- [x] `IosSlicerApp` — `ProfileStore` created as `@StateObject`, injected as `.environmentObject`, loaded via `.task`
+- [x] `SlicePalApp` — `ProfileStore` created as `@StateObject`, injected as `.environmentObject`, loaded via `.task`
 
 ### Build Chain
 - [x] iOS CMake toolchain (leetal/ios-cmake, SIMULATORARM64)

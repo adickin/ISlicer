@@ -2,7 +2,7 @@
 
 ## Goal
 
-Add a complete material (filament) profile system to IosSlicer. Material profiles own retraction, Z-hop, temperature, cooling, and fan settings — the settings that are material-dependent rather than print-quality-dependent (following PrusaSlicer's filament profile architecture). Built-in profiles ship for PLA, PETG, ABS, and TPU. Users can create, edit, and delete custom profiles. The active profile is applied to the slicer context before every slice.
+Add a complete material (filament) profile system to SlicePal. Material profiles own retraction, Z-hop, temperature, cooling, and fan settings — the settings that are material-dependent rather than print-quality-dependent (following PrusaSlicer's filament profile architecture). Built-in profiles ship for PLA, PETG, ABS, and TPU. Users can create, edit, and delete custom profiles. The active profile is applied to the slicer context before every slice.
 
 ---
 
@@ -328,7 +328,7 @@ private func applyMaterialProfile(_ profile: MaterialProfile, to handle: SlicerH
 }
 ```
 
-### 5.4 `IosSlicerApp.swift` changes
+### 5.4 `SlicePalApp.swift` changes
 
 ```swift
 @StateObject private var materialProfileStore = MaterialProfileStore()
@@ -348,15 +348,15 @@ private func applyMaterialProfile(_ profile: MaterialProfile, to handle: SlicerH
 
 | File | Action |
 |------|--------|
-| `app/IosSlicer/MaterialProfile.swift` | **New** — `MaterialProfile` struct |
-| `app/IosSlicer/BuiltInMaterialProfiles.swift` | **New** — PLA / PETG / ABS / TPU defaults |
-| `app/IosSlicer/MaterialProfileStore.swift` | **New** — `@MainActor ObservableObject` |
-| `app/IosSlicer/MaterialProfileEditorView.swift` | **New** — Form editor |
-| `app/IosSlicer/MaterialProfilePickerView.swift` | **New** — List picker |
-| `app/IosSlicer/slicer_bridge.h` | **Edit** — add `SlicerMaterialConfig` + `slicer_apply_material_config` |
-| `app/IosSlicer/slicer_bridge.cpp` | **Edit** — implement `slicer_apply_material_config` |
-| `app/IosSlicer/ContentView.swift` | **Edit** — material row, sheet, applyMaterialProfile, runSlice step |
-| `app/IosSlicer/IosSlicerApp.swift` | **Edit** — add `materialProfileStore` StateObject + env injection |
+| `app/SlicePal/MaterialProfile.swift` | **New** — `MaterialProfile` struct |
+| `app/SlicePal/BuiltInMaterialProfiles.swift` | **New** — PLA / PETG / ABS / TPU defaults |
+| `app/SlicePal/MaterialProfileStore.swift` | **New** — `@MainActor ObservableObject` |
+| `app/SlicePal/MaterialProfileEditorView.swift` | **New** — Form editor |
+| `app/SlicePal/MaterialProfilePickerView.swift` | **New** — List picker |
+| `app/SlicePal/slicer_bridge.h` | **Edit** — add `SlicerMaterialConfig` + `slicer_apply_material_config` |
+| `app/SlicePal/slicer_bridge.cpp` | **Edit** — implement `slicer_apply_material_config` |
+| `app/SlicePal/ContentView.swift` | **Edit** — material row, sheet, applyMaterialProfile, runSlice step |
+| `app/SlicePal/SlicePalApp.swift` | **Edit** — add `materialProfileStore` StateObject + env injection |
 
 ---
 
@@ -366,7 +366,7 @@ private func applyMaterialProfile(_ profile: MaterialProfile, to handle: SlicerH
 2. `MaterialProfileStore.swift` — depends on data model
 3. `slicer_bridge.h` + `slicer_bridge.cpp` — C bridge extension
 4. `MaterialProfileEditorView.swift` + `MaterialProfilePickerView.swift` — UI
-5. `IosSlicerApp.swift` — wire up store
+5. `SlicePalApp.swift` — wire up store
 6. `ContentView.swift` — add row + sheet + apply call
 
 After step 3, rebuild the XCFramework (`scripts/11_xcframework.sh`) is **not** needed — `slicer_bridge.cpp` is compiled directly by Xcode, not packaged into the framework.

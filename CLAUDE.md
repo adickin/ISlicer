@@ -1,4 +1,4 @@
-# CLAUDE.md — IosSlicer
+# CLAUDE.md — SlicePal
 
 Guidelines and context for AI-assisted development on this project.
 
@@ -25,7 +25,7 @@ This project is entirely AI-written. See README.md for architecture and PROGRESS
 - After any change to libslic3r or its deps, re-run `scripts/11_xcframework.sh` to update the XCFramework headers.
 - Current target: **SIMULATORARM64** (iPhone Simulator on Apple Silicon). Device build (`PLATFORM=OS64`) is not yet done.
 
-## C Bridge (`app/IosSlicer/slicer_bridge.h/.cpp`)
+## C Bridge (`app/SlicePal/slicer_bridge.h/.cpp`)
 
 The only interface between Swift and C++. Swift cannot call C++ directly.
 

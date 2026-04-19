@@ -1,4 +1,4 @@
-# IosSlicer — Backlog
+# SlicePal — Backlog
 
 Features and ideas that are out of scope for v1 but worth tracking.
 

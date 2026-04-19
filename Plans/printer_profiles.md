@@ -322,7 +322,7 @@ A bordered `TextEditor` with a small label and copy button. Used in all start/en
 
 ## 6. ContentView Integration
 
-- Add `@StateObject private var profileStore = ProfileStore()` to `IosSlicerApp` and inject via `.environmentObject(profileStore)`.
+- Add `@StateObject private var profileStore = ProfileStore()` to `SlicePalApp` and inject via `.environmentObject(profileStore)`.
 - In `ContentView`, add a "Printer: [Name]" tappable row in the model section that opens `ProfilePickerView` as a sheet.
 - Before calling `slicer_slice_with_progress`, call `slicer_apply_printer_config` with the selected profile's settings.
 - If no profile is selected, show an alert prompting the user to pick one.
@@ -333,19 +333,19 @@ A bordered `TextEditor` with a small label and copy button. Used in all start/en
 
 | File | New / Modified |
 |------|---------------|
-| `app/IosSlicer/GCodeFlavor.swift` | New |
-| `app/IosSlicer/BuildPlateShape.swift` | New |
-| `app/IosSlicer/ExtruderProfile.swift` | New |
-| `app/IosSlicer/PrinterProfile.swift` | New |
-| `app/IosSlicer/ProfileStore.swift` | New |
-| `app/IosSlicer/BuiltInProfiles.swift` | New |
-| `app/IosSlicer/ProfilePickerView.swift` | New |
-| `app/IosSlicer/PrinterProfileEditorView.swift` | New |
-| `app/IosSlicer/GCodeEditorView.swift` | New |
-| `app/IosSlicer/slicer_bridge.h` | Modified — add `SlicerPrinterConfig` + `slicer_apply_printer_config` |
-| `app/IosSlicer/slicer_bridge.cpp` | Modified — implement `slicer_apply_printer_config` |
-| `app/IosSlicer/ContentView.swift` | Modified — profile picker button, call `slicer_apply_printer_config` |
-| `app/IosSlicer/IosSlicerApp.swift` | Modified — create `ProfileStore`, inject as environment |
+| `app/SlicePal/GCodeFlavor.swift` | New |
+| `app/SlicePal/BuildPlateShape.swift` | New |
+| `app/SlicePal/ExtruderProfile.swift` | New |
+| `app/SlicePal/PrinterProfile.swift` | New |
+| `app/SlicePal/ProfileStore.swift` | New |
+| `app/SlicePal/BuiltInProfiles.swift` | New |
+| `app/SlicePal/ProfilePickerView.swift` | New |
+| `app/SlicePal/PrinterProfileEditorView.swift` | New |
+| `app/SlicePal/GCodeEditorView.swift` | New |
+| `app/SlicePal/slicer_bridge.h` | Modified — add `SlicerPrinterConfig` + `slicer_apply_printer_config` |
+| `app/SlicePal/slicer_bridge.cpp` | Modified — implement `slicer_apply_printer_config` |
+| `app/SlicePal/ContentView.swift` | Modified — profile picker button, call `slicer_apply_printer_config` |
+| `app/SlicePal/SlicePalApp.swift` | Modified — create `ProfileStore`, inject as environment |
 | `app/project.yml` | No change needed (files auto-included by xcodegen's glob) |
 
 ---
@@ -358,7 +358,7 @@ A bordered `TextEditor` with a small label and copy button. Used in all start/en
 4. **GCodeEditorView** — small reusable component
 5. **PrinterProfileEditorView** — full form
 6. **ProfilePickerView** — list + navigation to editor
-7. **ContentView + IosSlicerApp integration** — wire up environment object, profile button, bridge call
+7. **ContentView + SlicePalApp integration** — wire up environment object, profile button, bridge call
 8. **Test end-to-end** — slice with Ender 3 S1 profile, verify start/end gcode in output .gcode file
 
 ---

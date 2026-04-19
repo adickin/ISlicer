@@ -1,4 +1,4 @@
-# IosSlicer
+# SlicePal
 
 An iOS on-device 3D printing slicer. Loads an STL, slices it using libslic3r (PrusaSlicer's C++ core compiled as a static library), and exports G-code directly to the iOS Files app.
 
@@ -83,7 +83,7 @@ After `build.sh` completes:
 ```bash
 cd app
 xcodegen
-open IosSlicer.xcodeproj
+open SlicePal.xcodeproj
 ```
 
 Select the **iPhone simulator** target, hit **⌘R**. The app builds and runs in the simulator.
@@ -140,7 +140,7 @@ Two small stub `.cpp` files are compiled instead of their JPEG/Z3-dependent orig
 ## Project Layout
 
 ```
-IosSlicer/
+SlicePal/
 ├── README.md
 ├── build.sh                          ← master build entry point (steps 0–20)
 ├── patches/
@@ -172,12 +172,12 @@ IosSlicer/
 │   └── 11_xcframework.sh
 └── app/
     ├── project.yml                   ← xcodegen spec (links ~40 static libs)
-    └── IosSlicer/
-        ├── IosSlicerApp.swift
+    └── SlicePal/
+        ├── SlicePalApp.swift
         ├── ContentView.swift
         ├── slicer_bridge.h           ← C API visible to Swift
         ├── slicer_bridge.cpp         ← libslic3r wrapper
-        ├── IosSlicer-Bridging-Header.h
+        ├── SlicePal-Bridging-Header.h
         └── Resources/
             └── cube.stl              ← 20mm test model
 ```
