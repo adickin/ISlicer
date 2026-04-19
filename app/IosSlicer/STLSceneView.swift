@@ -597,8 +597,9 @@ final class Coordinator: NSObject, UIGestureRecognizerDelegate {
               let scnView = gr.view as? SCNView,
               isModelSelected,
               gizmoContainerNode?.isHidden == false else { return false }
-        let hits = scnView.hitTest(gr.location(in: scnView), options: nil)
-        return gizmoNodeInfo(hits.first?.node) != nil
+        let hits = scnView.hitTest(gr.location(in: scnView),
+                                   options: [.searchMode: SCNHitTestSearchMode.all.rawValue])
+        return hits.contains { gizmoNodeInfo($0.node) != nil }
     }
 
     func gestureRecognizer(_ gr: UIGestureRecognizer,
@@ -631,8 +632,8 @@ final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         switch gesture.state {
         case .began:
             let loc  = gesture.location(in: scnView)
-            let hits = scnView.hitTest(loc, options: nil)
-            if let info = gizmoNodeInfo(hits.first?.node) {
+            let hits = scnView.hitTest(loc, options: [.searchMode: SCNHitTestSearchMode.all.rawValue])
+            if let info = hits.lazy.compactMap({ self.gizmoNodeInfo($0.node) }).first {
                 dragAxis = info.axis
                 dragMode = info.mode
                 lastPanLocation = loc
