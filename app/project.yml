@@ -7,7 +7,7 @@
 #     libslic3r.xcframework exists at app/libslic3r.xcframework
 #   • All deps installed in ~/ios-sysroot-sim
 
-name: IosSlicer
+name: SlicePal
 options:
   bundleIdPrefix: com.yourname          # change to your Apple Developer team prefix
   deploymentTarget:
@@ -21,14 +21,14 @@ configs:
   Release: release
 
 targets:
-  IosSlicer:
+  SlicePal:
     type: application
     platform: iOS
     deploymentTarget: "16.0"
 
     # ── Source files ────────────────────────────────────────────
     sources:
-      - path: IosSlicer
+      - path: SlicePal
         excludes:
           - "**/.DS_Store"
 
@@ -45,7 +45,7 @@ targets:
     settings:
       base:
         # Bridging header — Swift ↔ C bridge
-        SWIFT_OBJC_BRIDGING_HEADER: IosSlicer/IosSlicer-Bridging-Header.h
+        SWIFT_OBJC_BRIDGING_HEADER: SlicePal/SlicePal-Bridging-Header.h
 
         # C++ standard (must match how libslic3r was compiled)
         CLANG_CXX_LANGUAGE_STANDARD: c++17
@@ -138,9 +138,9 @@ targets:
 
     # ── Info.plist ──────────────────────────────────────────────
     info:
-      path: IosSlicer/Info.plist
+      path: SlicePal/Info.plist
       properties:
-        CFBundleDisplayName: IosSlicer
+        CFBundleDisplayName: SlicePal
         CFBundleShortVersionString: "1.0"
         CFBundleVersion: "1"
 

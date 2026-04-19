@@ -41,7 +41,7 @@ Plan: `Plans/model_manipulation.md`
 ## Far future
 
 - [ ] direct from thingverse or other model hubs to sliced gcode.  i want it just pass the url, app downloads the zip and auto slices everything.
-
+- 
 
 ## Completed
 

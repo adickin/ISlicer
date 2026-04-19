@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct IosSlicerApp: App {
+struct SlicePalApp: App {
     @StateObject private var profileStore = ProfileStore()
     @StateObject private var sliceProfileStore = SliceProfileStore()
     @StateObject private var materialProfileStore = MaterialProfileStore()
@@ -26,7 +26,7 @@ struct IosSlicerApp: App {
 }
 
 /// Copy bundled sample STL files into the app's Documents folder so they
-/// appear in the Files app under On My iPhone → IosSlicer.
+/// appear in the Files app under On My iPhone → SlicePal.
 private func copySampleSTLsToDocuments() {
     let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
     let samples = Bundle.main.urls(forResourcesWithExtension: "stl", subdirectory: nil) ?? []
