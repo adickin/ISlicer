@@ -74,17 +74,20 @@ struct STLSceneView: UIViewRepresentable {
 
         let tg = makeTranslateGizmo()
         tg.name = "gizmo_translate_group"
+        tg.renderingOrder = 10
         container.addChildNode(tg)
         context.coordinator.gizmoTranslateGroup = tg
 
         let rg = makeRotateGizmo()
         rg.name = "gizmo_rotate_group"
+        rg.renderingOrder = 10
         rg.isHidden = true
         container.addChildNode(rg)
         context.coordinator.gizmoRotateGroup = rg
 
         let sg = makeScaleGizmo()
         sg.name = "gizmo_scale_group"
+        sg.renderingOrder = 10
         sg.isHidden = true
         container.addChildNode(sg)
         context.coordinator.gizmoScaleGroup = sg
@@ -114,7 +117,7 @@ struct STLSceneView: UIViewRepresentable {
         scene.rootNode.addChildNode(keyNode)
 
         let bedDiag = Float(sqrt(bedX * bedX + bedY * bedY)) / 100
-        let camera = SCNCamera(); camera.zNear = 0.01; camera.zFar = 100; camera.fieldOfView = 45
+        let camera = SCNCamera(); camera.zNear = 0.01; camera.zFar = 400; camera.fieldOfView = 45
         let camNode = SCNNode(); camNode.camera = camera
         camNode.position = SCNVector3(bedDiag * 0.75, bedDiag * 0.5, bedDiag)
         camNode.look(at: SCNVector3(0, 0, 0))
@@ -212,7 +215,10 @@ struct STLSceneView: UIViewRepresentable {
         let modelH = maxB.z - minB.z
         let maxExt = max(maxB.x - minB.x, maxB.y - minB.y, modelH)
         let lookAt  = SCNVector3(0, modelH / 2, 0)
-        let dist    = max(maxExt * 2.0, 0.8)
+        // Keep at least the same distance as the initial bed-view camera so the
+        // orbit controller's zoom range isn't shrunk when a small model loads.
+        let bedDiag = Float(sqrt(bedX * bedX + bedY * bedY)) / 100
+        let dist    = max(maxExt * 2.0, bedDiag)
         cam.position = SCNVector3(dist * 0.75, modelH / 2 + dist * 0.5, dist)
         cam.look(at: lookAt)
         scnView.pointOfView = cam
@@ -239,11 +245,14 @@ private func arrow(shaft: CGFloat, shaftR: CGFloat,
 
     let sg = SCNCylinder(radius: shaftR, height: shaft); sg.materials = [mat]
     let sn = SCNNode(geometry: sg); sn.position = SCNVector3(0, Float(shaft)/2, 0)
+    sn.renderingOrder = 100
 
     let hg = SCNCone(topRadius: 0, bottomRadius: headR, height: head); hg.materials = [mat]
     let hn = SCNNode(geometry: hg); hn.position = SCNVector3(0, Float(shaft)+Float(head)/2, 0)
+    hn.renderingOrder = 100
 
     let n = SCNNode(); n.addChildNode(sn); n.addChildNode(hn); n.eulerAngles = euler
+    n.renderingOrder = 100
     return n
 }
 
@@ -283,6 +292,7 @@ private func ringNode(ringR: CGFloat, pipeVis: CGFloat, color: UIColor, euler: S
     hitGeo.materials = [hitMat]
     let n = SCNNode(geometry: hitGeo)
     n.eulerAngles = euler
+    n.renderingOrder = 100
 
     // Visible thin torus
     let visGeo = SCNTorus(ringRadius: ringR, pipeRadius: pipeVis)
@@ -292,13 +302,15 @@ private func ringNode(ringR: CGFloat, pipeVis: CGFloat, color: UIColor, euler: S
     visMat.readsFromDepthBuffer = false
     visMat.writesToDepthBuffer = false
     visGeo.materials = [visMat]
-    n.addChildNode(SCNNode(geometry: visGeo))
+    let visNode = SCNNode(geometry: visGeo)
+    visNode.renderingOrder = 100
+    n.addChildNode(visNode)
 
     return n
 }
 
 private func makeRotateGizmo() -> SCNNode {
-    let ringR: CGFloat = 0.65, pipeVis: CGFloat = 0.045
+    let ringR: CGFloat = 1.1, pipeVis: CGFloat = 0.055
     let root = SCNNode()
 
     // X: ring in YZ plane — rotate torus (Y-axis hole) so hole aligns with X: Rz(+90°)
@@ -334,12 +346,15 @@ private func scaleHandle(shaft: CGFloat, shaftR: CGFloat, cube: CGFloat,
 
     let sg = SCNCylinder(radius: shaftR, height: shaft); sg.materials = [mat]
     let sn = SCNNode(geometry: sg); sn.position = SCNVector3(0, Float(shaft)/2, 0)
+    sn.renderingOrder = 100
 
     let cg = SCNBox(width: cube, height: cube, length: cube, chamferRadius: 0.02*cube)
     cg.materials = [mat]
     let cn = SCNNode(geometry: cg); cn.position = SCNVector3(0, Float(shaft)+Float(cube)/2, 0)
+    cn.renderingOrder = 100
 
     let n = SCNNode(); n.addChildNode(sn); n.addChildNode(cn); n.eulerAngles = euler
+    n.renderingOrder = 100
     return n
 }
 
@@ -389,7 +404,39 @@ func makePrintBedNode(bedX: Double, bedY: Double) -> SCNNode {
                           elements: [SCNGeometryElement(indices: idx, primitiveType: .line)])
     let mat = SCNMaterial(); mat.diffuse.contents = UIColor(white: 0.38, alpha: 1); mat.lightingModel = .constant
     geo.materials = [mat]
-    return SCNNode(geometry: geo)
+    let root = SCNNode(geometry: geo)
+
+    // Dimension labels along each edge
+    let fontSize = CGFloat(max(scaleX, scaleZ)) * 0.07
+    let labelMat = SCNMaterial()
+    labelMat.diffuse.contents = UIColor(white: 0.7, alpha: 1)
+    labelMat.lightingModel = .constant
+    labelMat.isDoubleSided = true
+
+    func bedLabel(_ text: String, position: SCNVector3) -> SCNNode {
+        let geo = SCNText(string: text, extrusionDepth: 0)
+        geo.font = UIFont.systemFont(ofSize: fontSize, weight: .medium)
+        geo.flatness = 0.1
+        geo.materials = [labelMat]
+        // SCNText origin is bottom-left; shift so it centres on the position
+        let (tMin, tMax) = geo.boundingBox
+        let tw = tMax.x - tMin.x
+        let node = SCNNode(geometry: geo)
+        node.position = SCNVector3(position.x - tw / 2, position.y, position.z)
+        let bb = SCNBillboardConstraint(); bb.freeAxes = .Y
+        node.constraints = [bb]
+        return node
+    }
+
+    let pad = Float(fontSize) * 1.2
+    // X label: centred along the front edge (positive Z side)
+    root.addChildNode(bedLabel(String(format: "%.0f mm", bedX),
+                               position: SCNVector3(0, 0.01, halfZ + pad)))
+    // Y (depth) label: centred along the right edge (positive X side)
+    root.addChildNode(bedLabel(String(format: "%.0f mm", bedY),
+                               position: SCNVector3(halfX + pad, 0.01, 0)))
+
+    return root
 }
 
 // MARK: - Corner axis arrows
@@ -507,6 +554,7 @@ final class Coordinator: NSObject, UIGestureRecognizerDelegate {
 
         let node = SCNNode(geometry: geo)
         node.name = "boundingBox"
+        node.renderingOrder = 50
         node.isHidden = !isModelSelected
         pivotNode?.addChildNode(node)
         boundingBoxNode = node
