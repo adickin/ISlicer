@@ -21,7 +21,10 @@
       "Bash(xcodebuild -project IosSlicer.xcodeproj -scheme IosSlicer -destination 'platform=iOS Simulator,name=iPhone 16' build)",
       "Bash(xcodebuild -scheme IosSlicer -destination 'platform=iOS Simulator,name=iPhone 16 Pro' -configuration Debug build)",
       "Bash(xcodebuild -project IosSlicer.xcodeproj -scheme IosSlicer -destination 'platform=iOS Simulator,name=iPhone 16' -configuration Debug build)",
-      "Bash(grep -v \"^$\")"
+      "Bash(grep -v \"^$\")",
+      "Bash(xcodebuild -project SlicePal.xcodeproj -scheme SlicePal -destination 'platform=iOS Simulator,name=iPhone 16' -configuration Debug build)",
+      "Bash(xcodebuild -project /Users/adickin/work/IosSlicer/app/SlicePal.xcodeproj -scheme SlicePal -destination 'platform=iOS Simulator,name=iPhone 16' -configuration Debug build)",
+      "Bash(ibtool --errors --warnings --notices /Users/adickin/work/IosSlicer/app/SlicePal/LaunchScreen.storyboard)"
     ]
   }
 }

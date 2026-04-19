@@ -175,7 +175,4 @@ targets:
           - 1   # iPhone
           - 2   # iPad
 
-        UILaunchScreen:
-          UIColorName: LaunchBackground
-          UIImageName: LaunchImage
-          UIImageRespectsSafeAreaInsets: false
+        UILaunchStoryboardName: LaunchScreen
