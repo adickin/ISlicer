@@ -82,6 +82,15 @@ After `build.sh` completes:
 
 ```bash
 cd app
+
+# One-time: set your Apple Developer Team ID for code signing
+cp project.local.yml.example project.local.yml
+# Edit project.local.yml and replace XXXXXXXXXX with your Team ID.
+# Find it with:
+#   security find-identity -v -p codesigning | grep "Apple Development"
+# It's the string in parentheses, e.g. "Apple Development: Your Name (XXXXXXXXXX)"
+# project.local.yml is gitignored — never commit it.
+
 xcodegen
 open SlicePal.xcodeproj
 ```

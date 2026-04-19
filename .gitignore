@@ -27,3 +27,4 @@ app/libslic3r.xcframework/
 .vscode/
 *.swp
 *.swo
+app/project.local.yml

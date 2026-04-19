@@ -1,0 +1,12 @@
+# Copy this file to project.local.yml and fill in your values.
+# project.local.yml is gitignored — never commit it.
+#
+# Find your Team ID:
+#   security find-identity -v -p codesigning | grep "Apple Development"
+#   It's the string in parentheses, e.g. "Apple Development: Your Name (XXXXXXXXXX)"
+
+targets:
+  SlicePal:
+    settings:
+      base:
+        DEVELOPMENT_TEAM: XXXXXXXXXX

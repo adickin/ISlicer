@@ -1,15 +1,20 @@
-# xcodegen project spec for IosSlicer
+# xcodegen project spec for SlicePal
 # Generate with: cd app && xcodegen
-# Then open:     open IosSlicer.xcodeproj
+# Then open:     open SlicePal.xcodeproj
 #
 # Prerequisites:
 #   • Run build.sh (or at least up through 11_xcframework.sh) so that
 #     libslic3r.xcframework exists at app/libslic3r.xcframework
 #   • All deps installed in ~/ios-sysroot-sim
+#   • Copy app/project.local.yml.example to app/project.local.yml and fill in your team ID
+
+includes:
+  - path: project.local.yml
+    optional: true
 
 name: SlicePal
 options:
-  bundleIdPrefix: com.yourname          # change to your Apple Developer team prefix
+  bundleIdPrefix: com.adickin
   deploymentTarget:
     iOS: "16.0"
   xcodeVersion: "16.0"
@@ -170,4 +175,7 @@ targets:
           - 1   # iPhone
           - 2   # iPad
 
-        UILaunchScreen: {}
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+          UIImageName: LaunchImage
+          UIImageRespectsSafeAreaInsets: false
