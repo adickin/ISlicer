@@ -114,6 +114,8 @@ targets:
           $(IOS_SYSROOT)/lib/libpng.a
           $(IOS_SYSROOT)/lib/libz.a
 
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+
         # No bitcode (deprecated in Xcode 14+; required OFF for cross-compiled libs)
         ENABLE_BITCODE: NO
 
