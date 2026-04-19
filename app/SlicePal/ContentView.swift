@@ -747,15 +747,11 @@ struct ContentView: View {
         }
 
         // 1. Resolve STL path
-        let stlPath: String
-        if let url = await MainActor.run(body: { loadedSTLURL }) {
-            stlPath = url.path
-        } else if let bundled = Bundle.main.path(forResource: "cube", ofType: "stl") {
-            stlPath = bundled
-        } else {
+        guard let stlURL = await MainActor.run(body: { loadedSTLURL }) else {
             await MainActor.run { state = .failed(message: "No STL file loaded") ; showErrorAlert = true }
             return
         }
+        let stlPath = stlURL.path
 
         // 2. Output path in Documents
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
