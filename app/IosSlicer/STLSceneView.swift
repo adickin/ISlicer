@@ -251,7 +251,22 @@ private func arrow(shaft: CGFloat, shaftR: CGFloat,
     let hn = SCNNode(geometry: hg); hn.position = SCNVector3(0, Float(shaft)+Float(head)/2, 0)
     hn.renderingOrder = 100
 
-    let n = SCNNode(); n.addChildNode(sn); n.addChildNode(hn); n.eulerAngles = euler
+    // Invisible wider hit target covering the whole arrow for easier selection
+    let hitR = headR * 1.5
+    let totalLen = shaft + head
+    let hitGeo = SCNCylinder(radius: hitR, height: totalLen)
+    let hitMat = SCNMaterial()
+    hitMat.diffuse.contents = UIColor.clear
+    hitMat.lightingModel = .constant
+    hitMat.readsFromDepthBuffer = false
+    hitMat.writesToDepthBuffer = false
+    hitGeo.materials = [hitMat]
+    let hitNode = SCNNode(geometry: hitGeo)
+    hitNode.position = SCNVector3(0, Float(totalLen)/2, 0)
+    hitNode.renderingOrder = 100
+
+    let n = SCNNode(); n.addChildNode(hitNode); n.addChildNode(sn); n.addChildNode(hn)
+    n.eulerAngles = euler
     n.renderingOrder = 100
     return n
 }
@@ -353,7 +368,22 @@ private func scaleHandle(shaft: CGFloat, shaftR: CGFloat, cube: CGFloat,
     let cn = SCNNode(geometry: cg); cn.position = SCNVector3(0, Float(shaft)+Float(cube)/2, 0)
     cn.renderingOrder = 100
 
-    let n = SCNNode(); n.addChildNode(sn); n.addChildNode(cn); n.eulerAngles = euler
+    // Invisible wider hit target covering the whole handle
+    let hitR = cube * 0.75
+    let totalLen = shaft + cube
+    let hitGeo = SCNCylinder(radius: hitR, height: totalLen)
+    let hitMat = SCNMaterial()
+    hitMat.diffuse.contents = UIColor.clear
+    hitMat.lightingModel = .constant
+    hitMat.readsFromDepthBuffer = false
+    hitMat.writesToDepthBuffer = false
+    hitGeo.materials = [hitMat]
+    let hitNode = SCNNode(geometry: hitGeo)
+    hitNode.position = SCNVector3(0, Float(totalLen)/2, 0)
+    hitNode.renderingOrder = 100
+
+    let n = SCNNode(); n.addChildNode(hitNode); n.addChildNode(sn); n.addChildNode(cn)
+    n.eulerAngles = euler
     n.renderingOrder = 100
     return n
 }
@@ -607,6 +637,7 @@ final class Coordinator: NSObject, UIGestureRecognizerDelegate {
                 dragMode = info.mode
                 lastPanLocation = loc
                 scnView.allowsCameraControl = false
+                setGizmoAxisHighlight(active: info.axis, mode: info.mode)
             }
 
         case .changed:
@@ -663,6 +694,7 @@ final class Coordinator: NSObject, UIGestureRecognizerDelegate {
             dragAxis = nil
             lastPanLocation = nil
             scnView.allowsCameraControl = true
+            restoreGizmoAxisHighlight()
 
         default: break
         }
@@ -696,6 +728,34 @@ final class Coordinator: NSObject, UIGestureRecognizerDelegate {
             n = cur.parent
         }
         return false
+    }
+
+    private func setGizmoAxisHighlight(active: GizmoAxis, mode: GizmoMode) {
+        let names: [(String, GizmoAxis)] = {
+            switch mode {
+            case .translate: return [("gizmo_x", .x), ("gizmo_y", .y), ("gizmo_z", .z)]
+            case .rotate:    return [("gizmo_rot_x", .x), ("gizmo_rot_y", .y), ("gizmo_rot_z", .z)]
+            case .scale:     return [("gizmo_scale_x", .x), ("gizmo_scale_y", .y), ("gizmo_scale_z", .z)]
+            }
+        }()
+        let group: SCNNode? = {
+            switch mode {
+            case .translate: return gizmoTranslateGroup
+            case .rotate:    return gizmoRotateGroup
+            case .scale:     return gizmoScaleGroup
+            }
+        }()
+        for (name, axis) in names {
+            if let node = group?.childNode(withName: name, recursively: false) {
+                node.opacity = axis == active ? 1.0 : 0.2
+            }
+        }
+    }
+
+    private func restoreGizmoAxisHighlight() {
+        for group in [gizmoTranslateGroup, gizmoRotateGroup, gizmoScaleGroup] {
+            group?.enumerateChildNodes { node, _ in node.opacity = 1.0 }
+        }
     }
 
     /// Screen-space dot-projection of drag onto world axis. Returns mm.
