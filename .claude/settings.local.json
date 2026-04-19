@@ -19,7 +19,9 @@
       "Bash(xcrun simctl:*)",
       "Bash(xcodebuild -project IosSlicer.xcodeproj -scheme IosSlicer -destination 'id=596E7FFB-9709-4A81-B5D5-500A9B558CB2' -configuration Debug build)",
       "Bash(xcodebuild -project IosSlicer.xcodeproj -scheme IosSlicer -destination 'platform=iOS Simulator,name=iPhone 16' build)",
-      "Bash(xcodebuild -scheme IosSlicer -destination 'platform=iOS Simulator,name=iPhone 16 Pro' -configuration Debug build)"
+      "Bash(xcodebuild -scheme IosSlicer -destination 'platform=iOS Simulator,name=iPhone 16 Pro' -configuration Debug build)",
+      "Bash(xcodebuild -project IosSlicer.xcodeproj -scheme IosSlicer -destination 'platform=iOS Simulator,name=iPhone 16' -configuration Debug build)",
+      "Bash(grep -v \"^$\")"
     ]
   }
 }

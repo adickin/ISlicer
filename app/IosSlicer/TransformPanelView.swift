@@ -1,10 +1,11 @@
 import SwiftUI
+import UIKit
 import simd
 import SceneKit
 
 // MARK: - Float text field (string-backed, no auto-reformatting while typing)
 
-private struct FloatField: View {
+struct FloatField: View {
     @Binding var value: Float
     let fmt: String   // printf format string, e.g. "%g" or "%.3g"
 
@@ -14,7 +15,12 @@ private struct FloatField: View {
     var body: some View {
         TextField("", text: $text) { isEditing in
             editing = isEditing
-            if !isEditing { commit() }
+            if isEditing {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
+                    UIApplication.shared.sendAction(
+                        #selector(UIResponder.selectAll(_:)), to: nil, from: nil, for: nil)
+                }
+            } else { commit() }
         }
         .keyboardType(.decimalPad)
         .multilineTextAlignment(.trailing)
@@ -40,7 +46,7 @@ struct TransformPanelView: View {
     let bedY: Double
     let bedZ: Double
 
-    @State private var lockScale = true
+    @Binding var lockScale: Bool
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -289,5 +295,6 @@ struct TransformPanelView: View {
 
 #Preview {
     TransformPanelView(transform: .constant(ModelTransform()),
-                       meshInfo: nil, bedX: 220, bedY: 220, bedZ: 250)
+                       meshInfo: nil, bedX: 220, bedY: 220, bedZ: 250,
+                       lockScale: .constant(true))
 }

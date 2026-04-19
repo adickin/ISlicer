@@ -6,7 +6,7 @@ No network calls. No cloud. Runs entirely on-device.
 
 ## NOTE
 
-This entire project will be written by AI
+This entire project will be written by AI.
 
 ## Architecture
 

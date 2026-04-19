@@ -23,6 +23,7 @@ struct STLSceneView: UIViewRepresentable {
     var stlURL: URL? = nil
     var modelTransform: ModelTransform = .identity
     var gizmoMode: GizmoMode = .translate
+    var lockScale: Bool = true
     var onTransformChange: ((ModelTransform) -> Void)? = nil
     var onSelectionChange: ((Bool) -> Void)? = nil
 
@@ -67,6 +68,7 @@ struct STLSceneView: UIViewRepresentable {
         let container = SCNNode()
         container.name = "gizmoContainer"
         container.isHidden = true
+        container.renderingOrder = 10
         scene.rootNode.addChildNode(container)
         context.coordinator.gizmoContainerNode = container
 
@@ -130,6 +132,7 @@ struct STLSceneView: UIViewRepresentable {
         coord.onTransformChange    = onTransformChange
         coord.onSelectionChange    = onSelectionChange
         coord.currentTransform     = modelTransform
+        coord.lockScale            = lockScale
 
         // 1. Rebuild bed/axes on dimension change.
         if coord.lastBedX != bedX || coord.lastBedY != bedY, let scene = scnView.scene {
@@ -200,6 +203,9 @@ struct STLSceneView: UIViewRepresentable {
         let s = max(modelDiag * 0.55, 0.06)
         coord.gizmoContainerNode?.scale = SCNVector3(s, s, s)
 
+        // 9. Rebuild bounding box wireframe.
+        coord.setupBoundingBox(min: minB, max: maxB)
+
         // 9. Reset camera only when file changes.
         guard coord.lastSTLURL != stlURL else { return }
         coord.lastSTLURL = stlURL
@@ -228,6 +234,8 @@ private func arrow(shaft: CGFloat, shaftR: CGFloat,
     let mat = SCNMaterial()
     mat.diffuse.contents = color
     mat.lightingModel = .constant
+    mat.readsFromDepthBuffer = false
+    mat.writesToDepthBuffer = false
 
     let sg = SCNCylinder(radius: shaftR, height: shaft); sg.materials = [mat]
     let sn = SCNNode(geometry: sg); sn.position = SCNVector3(0, Float(shaft)/2, 0)
@@ -270,6 +278,8 @@ private func ringNode(ringR: CGFloat, pipeVis: CGFloat, color: UIColor, euler: S
     let hitMat = SCNMaterial()
     hitMat.diffuse.contents = UIColor.clear
     hitMat.lightingModel = .constant
+    hitMat.readsFromDepthBuffer = false
+    hitMat.writesToDepthBuffer = false
     hitGeo.materials = [hitMat]
     let n = SCNNode(geometry: hitGeo)
     n.eulerAngles = euler
@@ -279,6 +289,8 @@ private func ringNode(ringR: CGFloat, pipeVis: CGFloat, color: UIColor, euler: S
     let visMat = SCNMaterial()
     visMat.diffuse.contents = color
     visMat.lightingModel = .constant
+    visMat.readsFromDepthBuffer = false
+    visMat.writesToDepthBuffer = false
     visGeo.materials = [visMat]
     n.addChildNode(SCNNode(geometry: visGeo))
 
@@ -317,6 +329,8 @@ private func scaleHandle(shaft: CGFloat, shaftR: CGFloat, cube: CGFloat,
     let mat = SCNMaterial()
     mat.diffuse.contents = color
     mat.lightingModel = .constant
+    mat.readsFromDepthBuffer = false
+    mat.writesToDepthBuffer = false
 
     let sg = SCNCylinder(radius: shaftR, height: shaft); sg.materials = [mat]
     let sn = SCNNode(geometry: sg); sn.position = SCNVector3(0, Float(shaft)/2, 0)
@@ -427,6 +441,12 @@ final class Coordinator: NSObject, UIGestureRecognizerDelegate {
     // Gizmo mode
     var gizmoMode:         GizmoMode = .translate
 
+    // Scale lock
+    var lockScale:         Bool = true
+
+    // Bounding box
+    weak var boundingBoxNode: SCNNode?
+
     // Drag state
     weak var tapGesture:   UITapGestureRecognizer?
     weak var panGesture:   UIPanGestureRecognizer?
@@ -444,10 +464,52 @@ final class Coordinator: NSObject, UIGestureRecognizerDelegate {
     func updateGizmoGroupVisibility() {
         let show = isModelSelected && meshNode?.geometry != nil
         gizmoContainerNode?.isHidden = !show
+        boundingBoxNode?.isHidden    = !show
         guard show else { return }
         gizmoTranslateGroup?.isHidden = gizmoMode != .translate
         gizmoRotateGroup?.isHidden    = gizmoMode != .rotate
         gizmoScaleGroup?.isHidden     = gizmoMode != .scale
+    }
+
+    // MARK: Bounding box
+
+    func setupBoundingBox(min minB: SCNVector3, max maxB: SCNVector3) {
+        boundingBoxNode?.removeFromParentNode()
+
+        // Pivot-local extents after the mesh node's -90° X rotation:
+        //   X: [-(maxB.x-minB.x)/2 .. +(maxB.x-minB.x)/2]
+        //   Y: [0 .. maxB.z-minB.z]
+        //   Z: [-(maxB.y-minB.y)/2 .. +(maxB.y-minB.y)/2]
+        let hw = (maxB.x - minB.x) / 2
+        let hh = maxB.z - minB.z
+        let hd = (maxB.y - minB.y) / 2
+
+        let verts: [SCNVector3] = [
+            SCNVector3(-hw, 0,   -hd), SCNVector3( hw, 0,   -hd),  // 0,1 bottom-front
+            SCNVector3( hw, 0,    hd), SCNVector3(-hw, 0,    hd),  // 2,3 bottom-back
+            SCNVector3(-hw, hh,  -hd), SCNVector3( hw, hh,  -hd),  // 4,5 top-front
+            SCNVector3( hw, hh,   hd), SCNVector3(-hw, hh,   hd),  // 6,7 top-back
+        ]
+        let idx: [Int32] = [
+            0,1, 1,2, 2,3, 3,0,   // bottom ring
+            4,5, 5,6, 6,7, 7,4,   // top ring
+            0,4, 1,5, 2,6, 3,7,   // vertical edges
+        ]
+        let geo = SCNGeometry(
+            sources: [SCNGeometrySource(vertices: verts)],
+            elements: [SCNGeometryElement(indices: idx, primitiveType: .line)])
+        let mat = SCNMaterial()
+        mat.diffuse.contents = UIColor(white: 1, alpha: 0.55)
+        mat.lightingModel = .constant
+        mat.readsFromDepthBuffer = false
+        mat.writesToDepthBuffer  = false
+        geo.materials = [mat]
+
+        let node = SCNNode(geometry: geo)
+        node.name = "boundingBox"
+        node.isHidden = !isModelSelected
+        pivotNode?.addChildNode(node)
+        boundingBoxNode = node
     }
 
     // MARK: Gesture delegate
@@ -470,6 +532,7 @@ final class Coordinator: NSObject, UIGestureRecognizerDelegate {
 
     @objc func handleTap(_ tap: UITapGestureRecognizer) {
         guard let scnView = tap.view as? SCNView else { return }
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         let hits = scnView.hitTest(tap.location(in: scnView), options: nil)
         let hit  = hits.first?.node
         if gizmoNodeInfo(hit) != nil { return }  // tapping gizmo doesn't change selection
@@ -532,10 +595,16 @@ final class Coordinator: NSObject, UIGestureRecognizerDelegate {
                                         in: scnView, origin: pivot.worldPosition)
                 // Per-axis scale: dragging 200 px doubles that axis.
                 let mult = max(0.001, 1.0 + proj / 200.0)
-                switch axis {
-                case .x: t.scale.x = max(0.001, t.scale.x * mult)
-                case .y: t.scale.y = max(0.001, t.scale.y * mult)
-                case .z: t.scale.z = max(0.001, t.scale.z * mult)
+                if lockScale {
+                    t.scale.x = max(0.001, t.scale.x * mult)
+                    t.scale.y = max(0.001, t.scale.y * mult)
+                    t.scale.z = max(0.001, t.scale.z * mult)
+                } else {
+                    switch axis {
+                    case .x: t.scale.x = max(0.001, t.scale.x * mult)
+                    case .y: t.scale.y = max(0.001, t.scale.y * mult)
+                    case .z: t.scale.z = max(0.001, t.scale.z * mult)
+                    }
                 }
             }
 

@@ -43,6 +43,7 @@ struct ContentView: View {
     @State private var stlMeshInfo: STLMeshInfo? = nil
     @State private var gizmoMode: GizmoMode = .translate
     @State private var isModelSelected = false
+    @State private var lockScale = true
 
     /// URL of the STL that has been copied to the temp directory.
     @State private var loadedSTLURL: URL? = nil
@@ -89,6 +90,7 @@ struct ContentView: View {
                         stlURL: loadedSTLURL,
                         modelTransform: modelTransform,
                         gizmoMode: gizmoMode,
+                        lockScale: lockScale,
                         onTransformChange: { modelTransform = $0 },
                         onSelectionChange: { isModelSelected = $0 }
                     )
@@ -141,7 +143,8 @@ struct ContentView: View {
                 meshInfo: stlMeshInfo,
                 bedX: profileStore.selectedProfile?.bedX ?? 220,
                 bedY: profileStore.selectedProfile?.bedY ?? 220,
-                bedZ: profileStore.selectedProfile?.bedZ ?? 250
+                bedZ: profileStore.selectedProfile?.bedZ ?? 250,
+                lockScale: $lockScale
             )
         }
         .alert("Slicing Error", isPresented: $showErrorAlert) {
@@ -167,56 +170,42 @@ struct ContentView: View {
 
     private var viewerControlsOverlay: some View {
         VStack {
-            HStack {
+            HStack(alignment: .top) {
+                // LEFT: Live transform bar (position/rotation/scale fields)
+                if !showLayerPreview && isModelSelected && loadedSTLGeometry != nil {
+                    transformBarContent
+                        .padding(.leading, 16)
+                }
                 Spacer()
+                // RIGHT: Gizmo & viewer buttons
                 VStack(spacing: 10) {
-                    // STL-mode controls: only when model is loaded and not in layer preview
                     if !showLayerPreview && loadedSTLGeometry != nil {
-                        // Wireframe toggle
                         overlayButton(
                             icon: "square.3.layers.3d",
                             label: showWireframe ? "Wire On" : "Wire Off",
                             active: showWireframe
                         ) { showWireframe.toggle() }
 
-                        // Colour mode cycle
                         overlayButton(
                             icon: viewerColorMode.icon,
                             label: viewerColorMode.displayName,
                             active: viewerColorMode != .solid
                         ) { viewerColorMode = viewerColorMode.next }
 
-                        // Open numeric transform panel
                         overlayButton(
                             icon: "slider.vertical.3",
                             label: "Values",
                             active: !modelTransform.isIdentity
                         ) { showTransformPanel = true }
 
-                        // Gizmo mode picker — visible when model is selected
                         if isModelSelected {
-                            Divider()
-                                .frame(width: 36)
-                                .padding(.vertical, 2)
-                            overlayButton(
-                                icon: "move.3d",
-                                label: "Move",
-                                active: gizmoMode == .translate
-                            ) { gizmoMode = .translate }
-                            overlayButton(
-                                icon: "rotate.3d",
-                                label: "Rotate",
-                                active: gizmoMode == .rotate
-                            ) { gizmoMode = .rotate }
-                            overlayButton(
-                                icon: "scale.3d",
-                                label: "Scale",
-                                active: gizmoMode == .scale
-                            ) { gizmoMode = .scale }
+                            Divider().frame(width: 36).padding(.vertical, 2)
+                            overlayButton(icon: "move.3d",   label: "Move",   active: gizmoMode == .translate) { gizmoMode = .translate }
+                            overlayButton(icon: "rotate.3d", label: "Rotate", active: gizmoMode == .rotate)    { gizmoMode = .rotate }
+                            overlayButton(icon: "scale.3d",  label: "Scale",  active: gizmoMode == .scale)     { gizmoMode = .scale }
                         }
                     }
 
-                    // Layer preview toggle — visible when gcode is ready
                     if case .done = state, !parsedLayers.isEmpty {
                         overlayButton(
                             icon: showLayerPreview ? "cube.transparent" : "square.3.layers.3d.slash",
@@ -225,10 +214,148 @@ struct ContentView: View {
                         ) { showLayerPreview.toggle() }
                     }
                 }
-                .padding(.top, 60)
                 .padding(.trailing, 16)
             }
+            .padding(.top, 60)
             Spacer()
+        }
+    }
+
+    // MARK: - Transform bar
+
+    @ViewBuilder
+    private var transformBarContent: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(gizmoModeTitle)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 8) {
+                axisField("X", color: .red,   binding: currentXBinding)
+                axisField("Y", color: .green, binding: currentYBinding)
+                axisField("Z", color: .blue,  binding: currentZBinding)
+                if !currentUnit.isEmpty {
+                    Text(currentUnit).font(.caption2).foregroundStyle(.secondary).lineLimit(1).fixedSize()
+                }
+            }
+
+            if gizmoMode == .scale {
+                HStack(spacing: 6) {
+                    Toggle("", isOn: $lockScale)
+                        .toggleStyle(.switch)
+                        .labelsHidden()
+                        .scaleEffect(0.75, anchor: .leading)
+                        .frame(width: 40)
+                    Image(systemName: lockScale ? "lock.fill" : "lock.open")
+                        .font(.caption2)
+                        .foregroundStyle(lockScale ? Color.accentColor : Color.secondary)
+                    Text("Lock aspect ratio")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if let info = stlMeshInfo {
+                Divider()
+                dimensionRows(info: info)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    @ViewBuilder
+    private func axisField(_ label: String, color: Color, binding: Binding<Float>) -> some View {
+        HStack(spacing: 3) {
+            Circle().fill(color).frame(width: 5, height: 5)
+            FloatField(value: binding, fmt: "%.2f")
+                .font(.caption.monospacedDigit())
+                .frame(width: 52)
+        }
+    }
+
+    @ViewBuilder
+    private func dimensionRows(info: STLMeshInfo) -> some View {
+        let w = info.sizeMMX * modelTransform.scale.x
+        let h = info.sizeMMZ * modelTransform.scale.y
+        let d = info.sizeMMY * modelTransform.scale.z
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Dimensions").font(.caption2.weight(.medium)).foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                dimDot(Color.red,   value: w)
+                dimDot(Color.green, value: h)
+                dimDot(Color.blue,  value: d)
+                Text("mm").font(.caption2).foregroundStyle(.secondary).lineLimit(1).fixedSize()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func dimDot(_ color: Color, value: Float) -> some View {
+        HStack(spacing: 3) {
+            Circle().fill(color).frame(width: 5, height: 5)
+            Text(String(format: "%.2f", value)).font(.caption2.monospacedDigit()).lineLimit(1).fixedSize()
+        }
+    }
+
+    // MARK: - Transform bar helpers
+
+    private var gizmoModeTitle: String {
+        switch gizmoMode { case .translate: "Position"; case .rotate: "Rotation"; case .scale: "Scale" }
+    }
+
+    private var currentUnit: String {
+        switch gizmoMode { case .translate: "mm"; case .rotate: "°"; case .scale: "" }
+    }
+
+    private var currentXBinding: Binding<Float> {
+        switch gizmoMode {
+        case .translate: Binding(get: { modelTransform.positionMM.x }, set: { modelTransform.positionMM.x = $0 })
+        case .rotate:    Binding(get: { modelTransform.rotationDeg.x }, set: { modelTransform.rotationDeg.x = $0 })
+        case .scale:     scaleXBinding
+        }
+    }
+    private var currentYBinding: Binding<Float> {
+        switch gizmoMode {
+        case .translate: Binding(get: { modelTransform.positionMM.y }, set: { modelTransform.positionMM.y = $0 })
+        case .rotate:    Binding(get: { modelTransform.rotationDeg.y }, set: { modelTransform.rotationDeg.y = $0 })
+        case .scale:     scaleYBinding
+        }
+    }
+    private var currentZBinding: Binding<Float> {
+        switch gizmoMode {
+        case .translate: Binding(get: { modelTransform.positionMM.z }, set: { modelTransform.positionMM.z = $0 })
+        case .rotate:    Binding(get: { modelTransform.rotationDeg.z }, set: { modelTransform.rotationDeg.z = $0 })
+        case .scale:     scaleZBinding
+        }
+    }
+
+    private var scaleXBinding: Binding<Float> {
+        Binding(get: { modelTransform.scale.x }) { v in
+            guard v > 0 else { return }
+            if lockScale, modelTransform.scale.x > 0 {
+                let r = v / modelTransform.scale.x
+                modelTransform.scale.x = v; modelTransform.scale.y *= r; modelTransform.scale.z *= r
+            } else { modelTransform.scale.x = v }
+        }
+    }
+    private var scaleYBinding: Binding<Float> {
+        Binding(get: { modelTransform.scale.y }) { v in
+            guard v > 0 else { return }
+            if lockScale, modelTransform.scale.y > 0 {
+                let r = v / modelTransform.scale.y
+                modelTransform.scale.y = v; modelTransform.scale.x *= r; modelTransform.scale.z *= r
+            } else { modelTransform.scale.y = v }
+        }
+    }
+    private var scaleZBinding: Binding<Float> {
+        Binding(get: { modelTransform.scale.z }) { v in
+            guard v > 0 else { return }
+            if lockScale, modelTransform.scale.z > 0 {
+                let r = v / modelTransform.scale.z
+                modelTransform.scale.z = v; modelTransform.scale.x *= r; modelTransform.scale.y *= r
+            } else { modelTransform.scale.z = v }
         }
     }
 
