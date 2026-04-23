@@ -7,7 +7,8 @@ import simd
 enum GizmoAxis {
     case x, y, z
     var worldDir: SIMD3<Float> {
-        switch self { case .x: return SIMD3(1,0,0); case .y: return SIMD3(0,1,0); case .z: return SIMD3(0,0,1) }
+        // Scene Y = print Z (up); scene Z = print Y (bed depth). Swap so labels match print convention.
+        switch self { case .x: return SIMD3(1,0,0); case .y: return SIMD3(0,0,1); case .z: return SIMD3(0,1,0) }
     }
 }
 
@@ -224,11 +225,12 @@ struct STLSceneView: UIViewRepresentable {
             if entry.lastTransform != model.transform {
                 let t = model.transform
                 let r = t.rotationDeg * (Float.pi / 180)
+                // positionMM.y = print Y = scene Z; positionMM.z = print Z (up) = scene Y
                 entry.pivot.position    = SCNVector3(t.positionMM.x / 100,
-                                                     t.positionMM.y / 100,
-                                                     t.positionMM.z / 100)
-                entry.pivot.eulerAngles = SCNVector3(r.x, r.y, r.z)
-                entry.pivot.scale       = SCNVector3(t.scale.x, t.scale.y, t.scale.z)
+                                                     t.positionMM.z / 100,
+                                                     t.positionMM.y / 100)
+                entry.pivot.eulerAngles = SCNVector3(r.x, r.z, r.y)
+                entry.pivot.scale       = SCNVector3(t.scale.x, t.scale.z, t.scale.y)
                 entry.lastTransform     = t
                 coord.modelEntries[model.id] = entry
             }
@@ -361,12 +363,12 @@ private func makeTranslateGizmo() -> SCNNode {
 
     let ya = arrow(shaft: shaft, shaftR: shaftR, head: head, headR: headR,
                    color: UIColor(red: 0.2, green: 0.9, blue: 0.2, alpha: 1),
-                   euler: SCNVector3(0, 0, 0))
+                   euler: SCNVector3(Float.pi/2, 0, 0))  // scene Z = print Y (bed depth)
     ya.name = "gizmo_y"
 
     let za = arrow(shaft: shaft, shaftR: shaftR, head: head, headR: headR,
                    color: UIColor(red: 0.3, green: 0.5, blue: 1.0, alpha: 1),
-                   euler: SCNVector3(Float.pi/2, 0, 0))
+                   euler: SCNVector3(0, 0, 0))            // scene Y = print Z (up)
     za.name = "gizmo_z"
 
     root.addChildNode(xa); root.addChildNode(ya); root.addChildNode(za)
@@ -410,12 +412,12 @@ private func makeRotateGizmo() -> SCNNode {
 
     let yr = ringNode(ringR: ringR, pipeVis: pipeVis,
                       color: UIColor(red: 0.2, green: 0.9, blue: 0.2, alpha: 1),
-                      euler: SCNVector3(0, 0, 0))
+                      euler: SCNVector3(Float.pi/2, 0, 0))  // ring in scene-Z plane = print Y rotation
     yr.name = "gizmo_rot_y"
 
     let zr = ringNode(ringR: ringR, pipeVis: pipeVis,
                       color: UIColor(red: 0.3, green: 0.5, blue: 1.0, alpha: 1),
-                      euler: SCNVector3(Float.pi/2, 0, 0))
+                      euler: SCNVector3(0, 0, 0))             // ring in scene-Y plane = print Z rotation
     zr.name = "gizmo_rot_z"
 
     root.addChildNode(xr); root.addChildNode(yr); root.addChildNode(zr)
@@ -469,12 +471,12 @@ private func makeScaleGizmo() -> SCNNode {
 
     let ya = scaleHandle(shaft: shaft, shaftR: shaftR, cube: cube,
                           color: UIColor(red: 0.2, green: 0.9, blue: 0.2, alpha: 1),
-                          euler: SCNVector3(0, 0, 0))
+                          euler: SCNVector3(Float.pi/2, 0, 0))  // scene Z = print Y
     ya.name = "gizmo_scale_y"
 
     let za = scaleHandle(shaft: shaft, shaftR: shaftR, cube: cube,
                           color: UIColor(red: 0.3, green: 0.5, blue: 1.0, alpha: 1),
-                          euler: SCNVector3(Float.pi/2, 0, 0))
+                          euler: SCNVector3(0, 0, 0))             // scene Y = print Z (up)
     za.name = "gizmo_scale_z"
 
     root.addChildNode(xa); root.addChildNode(ya); root.addChildNode(za)
