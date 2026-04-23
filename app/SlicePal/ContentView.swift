@@ -35,27 +35,22 @@ struct ContentView: View {
     @State private var showMaterialProfilePicker = false
     @State private var showNoProfileAlert = false
     @State private var showNoSliceProfileAlert = false
+    @State private var showIntersectingAlert = false
     @State private var isPanelExpanded = true
 
-    // Model transform + gizmo
-    @State private var modelTransform = ModelTransform()
+    // Multi-model state
+    @State private var models: [PlacedModel] = []
+    @State private var selectedModelID: UUID? = nil
+
+    // Gizmo + transform panel state
     @State private var showTransformPanel = false
-    @State private var stlMeshInfo: STLMeshInfo? = nil
     @State private var gizmoMode: GizmoMode = .translate
-    @State private var isModelSelected = false
     @State private var lockScale = true
-
-    /// URL of the STL that has been copied to the temp directory.
-    @State private var loadedSTLURL: URL? = nil
-    @State private var loadedSTLName: String = "None"
-
-    /// SceneKit geometry for the 3D preview.
-    @State private var loadedSTLGeometry: SCNGeometry? = nil
-    @State private var isParsingSTL = false
 
     // Viewer controls
     @State private var showWireframe: Bool = false
     @State private var viewerColorMode: ViewerColorMode = .solid
+    @State private var isParsingSTL = false
 
     // Layer preview
     @State private var showLayerPreview: Bool = false
@@ -65,14 +60,38 @@ struct ContentView: View {
     /// Retained while a slice is in progress; lets the cancel button reach slicer_cancel().
     @State private var activeHandle: SlicerHandle? = nil
 
+    // MARK: Helpers
+
+    private var selectedModel: PlacedModel? {
+        guard let id = selectedModelID else { return nil }
+        return models.first { $0.id == id }
+    }
+    private var selectedIndex: Int? {
+        guard let id = selectedModelID else { return nil }
+        return models.firstIndex { $0.id == id }
+    }
     private var isBusy: Bool {
         if case .slicing = state { return true }
         return false
     }
+    private var hasModels: Bool { !models.isEmpty }
+    private var anyIntersecting: Bool { models.contains { $0.isIntersecting } }
+
+    // Transform binding for the selected model — used by the transform panel and bar.
+    private var selectedTransformBinding: Binding<ModelTransform> {
+        Binding(
+            get: { self.selectedModel?.transform ?? .identity },
+            set: { newVal in
+                if let idx = self.selectedIndex {
+                    self.models[idx].transform = newVal
+                    checkIntersections(models: &self.models)
+                }
+            }
+        )
+    }
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            // Full-screen viewer — STL or GCode layer preview
             Group {
                 if showLayerPreview && !parsedLayers.isEmpty {
                     GCodeSceneView(
@@ -83,16 +102,22 @@ struct ContentView: View {
                     )
                 } else {
                     STLSceneView(
-                        geometry: loadedSTLGeometry,
+                        models: models,
+                        selectedModelID: selectedModelID,
                         bedX: profileStore.selectedProfile?.bedX ?? 220,
                         bedY: profileStore.selectedProfile?.bedY ?? 220,
                         showWireframe: showWireframe,
-                        stlURL: loadedSTLURL,
-                        modelTransform: modelTransform,
                         gizmoMode: gizmoMode,
                         lockScale: lockScale,
-                        onTransformChange: { modelTransform = $0 },
-                        onSelectionChange: { isModelSelected = $0 }
+                        onTransformChange: { id, newTransform in
+                            if let idx = models.firstIndex(where: { $0.id == id }) {
+                                models[idx].transform = newTransform
+                                checkIntersections(models: &models)
+                            }
+                        },
+                        onSelectionChange: { id in
+                            selectedModelID = id
+                        }
                     )
                     .overlay {
                         if isParsingSTL {
@@ -104,21 +129,29 @@ struct ContentView: View {
             }
             .ignoresSafeArea()
 
-            // Viewer controls overlay — top-right floating buttons
             viewerControlsOverlay
 
-            // Layer slider — shown above the panel when in layer preview mode
             if showLayerPreview && !parsedLayers.isEmpty {
                 layerSliderView
             }
 
-            // Bottom panel
             bottomPanel
         }
         .ignoresSafeArea(edges: .top)
         .onChange(of: viewerColorMode) { _ in
-            // Re-parse with new colour mode; camera is NOT reset (same URL)
-            if let url = loadedSTLURL { parseSTLPreview(url: url) }
+            let mode = viewerColorMode
+            for model in models {
+                let url     = model.url
+                let modelID = model.id
+                Task.detached(priority: .userInitiated) {
+                    let geo = try? parseSTL(url: url, colorMode: mode)
+                    await MainActor.run {
+                        if let i = models.firstIndex(where: { $0.id == modelID }) {
+                            models[i].geometry = geo
+                        }
+                    }
+                }
+            }
         }
         .sheet(isPresented: $showFilePicker) {
             DocumentPickerView { url in importSTL(from: url) }
@@ -128,24 +161,29 @@ struct ContentView: View {
                 ShareSheetView(items: [url]).ignoresSafeArea()
             }
         }
-        .sheet(isPresented: $showProfilePicker) {
-            ProfilePickerView()
-        }
-        .sheet(isPresented: $showSliceProfilePicker) {
-            SliceProfilePickerView()
-        }
-        .sheet(isPresented: $showMaterialProfilePicker) {
-            MaterialProfilePickerView()
-        }
+        .sheet(isPresented: $showProfilePicker) { ProfilePickerView() }
+        .sheet(isPresented: $showSliceProfilePicker) { SliceProfilePickerView() }
+        .sheet(isPresented: $showMaterialProfilePicker) { MaterialProfilePickerView() }
         .sheet(isPresented: $showTransformPanel) {
-            TransformPanelView(
-                transform: $modelTransform,
-                meshInfo: stlMeshInfo,
-                bedX: profileStore.selectedProfile?.bedX ?? 220,
-                bedY: profileStore.selectedProfile?.bedY ?? 220,
-                bedZ: profileStore.selectedProfile?.bedZ ?? 250,
-                lockScale: $lockScale
-            )
+            if let info = selectedModel?.meshInfo {
+                TransformPanelView(
+                    transform: selectedTransformBinding,
+                    meshInfo: info,
+                    bedX: profileStore.selectedProfile?.bedX ?? 220,
+                    bedY: profileStore.selectedProfile?.bedY ?? 220,
+                    bedZ: profileStore.selectedProfile?.bedZ ?? 250,
+                    lockScale: $lockScale
+                )
+            } else {
+                TransformPanelView(
+                    transform: selectedTransformBinding,
+                    meshInfo: nil,
+                    bedX: profileStore.selectedProfile?.bedX ?? 220,
+                    bedY: profileStore.selectedProfile?.bedY ?? 220,
+                    bedZ: profileStore.selectedProfile?.bedZ ?? 250,
+                    lockScale: $lockScale
+                )
+            }
         }
         .alert("Slicing Error", isPresented: $showErrorAlert) {
             Button("OK", role: .cancel) {}
@@ -164,22 +202,45 @@ struct ContentView: View {
         } message: {
             Text("Please select a slice profile before slicing.")
         }
+        .alert("Models Overlapping", isPresented: $showIntersectingAlert) {
+            Button("Slice Anyway", role: .destructive) {
+                Task.detached(priority: .userInitiated) { await runSlice() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Some models are intersecting. Slicing may produce unexpected results. Continue?")
+        }
     }
 
     // MARK: - Viewer controls overlay
 
     private var viewerControlsOverlay: some View {
-        VStack {
-            HStack(alignment: .top) {
-                // LEFT: Live transform bar (position/rotation/scale fields)
-                if !showLayerPreview && isModelSelected && loadedSTLGeometry != nil {
+        // ZStack lets left and right columns each anchor independently from the
+        // top so the model list doesn't push the gizmo buttons down.
+        ZStack(alignment: .top) {
+            // LEFT column: model list, then transform bar below it
+            VStack(alignment: .leading, spacing: 8) {
+                if !showLayerPreview {
+                    ModelListView(
+                        models: $models,
+                        selectedModelID: $selectedModelID,
+                        onAdd: { showFilePicker = true },
+                        disabled: isBusy
+                    )
+                }
+                if !showLayerPreview && selectedModelID != nil && selectedModel != nil {
                     transformBarContent
                         .padding(.leading, 16)
                 }
                 Spacer()
-                // RIGHT: Gizmo & viewer buttons
+            }
+            .padding(.top, 60)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            // RIGHT column: gizmo & viewer buttons — always anchored at top-right
+            VStack(alignment: .trailing) {
                 VStack(spacing: 10) {
-                    if !showLayerPreview && loadedSTLGeometry != nil {
+                    if !showLayerPreview && hasModels {
                         overlayButton(
                             icon: "square.3.layers.3d",
                             label: showWireframe ? "Wire On" : "Wire Off",
@@ -192,13 +253,13 @@ struct ContentView: View {
                             active: viewerColorMode != .solid
                         ) { viewerColorMode = viewerColorMode.next }
 
-                        overlayButton(
-                            icon: "slider.vertical.3",
-                            label: "Values",
-                            active: !modelTransform.isIdentity
-                        ) { showTransformPanel = true }
+                        if selectedModelID != nil {
+                            overlayButton(
+                                icon: "slider.vertical.3",
+                                label: "Values",
+                                active: !(selectedModel?.transform.isIdentity ?? true)
+                            ) { showTransformPanel = true }
 
-                        if isModelSelected {
                             Divider().frame(width: 36).padding(.vertical, 2)
                             overlayButton(icon: "move.3d",   label: "Move",   active: gizmoMode == .translate) { gizmoMode = .translate }
                             overlayButton(icon: "rotate.3d", label: "Rotate", active: gizmoMode == .rotate)    { gizmoMode = .rotate }
@@ -215,9 +276,10 @@ struct ContentView: View {
                     }
                 }
                 .padding(.trailing, 16)
+                Spacer()
             }
             .padding(.top, 60)
-            Spacer()
+            .frame(maxWidth: .infinity, alignment: .trailing)
         }
     }
 
@@ -255,9 +317,9 @@ struct ContentView: View {
                 }
             }
 
-            if let info = stlMeshInfo {
+            if let info = selectedModel?.meshInfo, let t = selectedModel?.transform {
                 Divider()
-                dimensionRows(info: info)
+                dimensionRows(info: info, transform: t)
             }
         }
         .padding(.horizontal, 10)
@@ -276,10 +338,10 @@ struct ContentView: View {
     }
 
     @ViewBuilder
-    private func dimensionRows(info: STLMeshInfo) -> some View {
-        let w = info.sizeMMX * modelTransform.scale.x
-        let h = info.sizeMMZ * modelTransform.scale.y
-        let d = info.sizeMMY * modelTransform.scale.z
+    private func dimensionRows(info: STLMeshInfo, transform: ModelTransform) -> some View {
+        let w = info.sizeMMX * transform.scale.x
+        let h = info.sizeMMZ * transform.scale.y
+        let d = info.sizeMMY * transform.scale.z
         VStack(alignment: .leading, spacing: 2) {
             Text("Dimensions").font(.caption2.weight(.medium)).foregroundStyle(.secondary)
             HStack(spacing: 8) {
@@ -304,63 +366,93 @@ struct ContentView: View {
     private var gizmoModeTitle: String {
         switch gizmoMode { case .translate: "Position"; case .rotate: "Rotation"; case .scale: "Scale" }
     }
-
     private var currentUnit: String {
         switch gizmoMode { case .translate: "mm"; case .rotate: "°"; case .scale: "" }
     }
 
     private var currentXBinding: Binding<Float> {
         switch gizmoMode {
-        case .translate: Binding(get: { modelTransform.positionMM.x }, set: { modelTransform.positionMM.x = $0 })
-        case .rotate:    Binding(get: { modelTransform.rotationDeg.x }, set: { modelTransform.rotationDeg.x = $0 })
-        case .scale:     scaleXBinding
+        case .translate: Binding(
+            get: { self.selectedModel?.transform.positionMM.x ?? 0 },
+            set: { v in self.writeTransform { $0.positionMM.x = v } })
+        case .rotate: Binding(
+            get: { self.selectedModel?.transform.rotationDeg.x ?? 0 },
+            set: { v in self.writeTransform { $0.rotationDeg.x = v } })
+        case .scale: scaleXBinding
         }
     }
     private var currentYBinding: Binding<Float> {
         switch gizmoMode {
-        case .translate: Binding(get: { modelTransform.positionMM.y }, set: { modelTransform.positionMM.y = $0 })
-        case .rotate:    Binding(get: { modelTransform.rotationDeg.y }, set: { modelTransform.rotationDeg.y = $0 })
-        case .scale:     scaleYBinding
+        case .translate: Binding(
+            get: { self.selectedModel?.transform.positionMM.y ?? 0 },
+            set: { v in self.writeTransform { $0.positionMM.y = v } })
+        case .rotate: Binding(
+            get: { self.selectedModel?.transform.rotationDeg.y ?? 0 },
+            set: { v in self.writeTransform { $0.rotationDeg.y = v } })
+        case .scale: scaleYBinding
         }
     }
     private var currentZBinding: Binding<Float> {
         switch gizmoMode {
-        case .translate: Binding(get: { modelTransform.positionMM.z }, set: { modelTransform.positionMM.z = $0 })
-        case .rotate:    Binding(get: { modelTransform.rotationDeg.z }, set: { modelTransform.rotationDeg.z = $0 })
-        case .scale:     scaleZBinding
+        case .translate: Binding(
+            get: { self.selectedModel?.transform.positionMM.z ?? 0 },
+            set: { v in self.writeTransform { $0.positionMM.z = v } })
+        case .rotate: Binding(
+            get: { self.selectedModel?.transform.rotationDeg.z ?? 0 },
+            set: { v in self.writeTransform { $0.rotationDeg.z = v } })
+        case .scale: scaleZBinding
         }
+    }
+
+    private func writeTransform(_ mutation: (inout ModelTransform) -> Void) {
+        guard let idx = selectedIndex else { return }
+        mutation(&models[idx].transform)
+        checkIntersections(models: &models)
     }
 
     private var scaleXBinding: Binding<Float> {
-        Binding(get: { modelTransform.scale.x }) { v in
-            guard v > 0 else { return }
-            if lockScale, modelTransform.scale.x > 0 {
-                let r = v / modelTransform.scale.x
-                modelTransform.scale.x = v; modelTransform.scale.y *= r; modelTransform.scale.z *= r
-            } else { modelTransform.scale.x = v }
+        Binding(get: { self.selectedModel?.transform.scale.x ?? 1 }) { v in
+            guard v > 0, let idx = self.selectedIndex else { return }
+            if self.lockScale, self.models[idx].transform.scale.x > 0 {
+                let r = v / self.models[idx].transform.scale.x
+                self.models[idx].transform.scale.x = v
+                self.models[idx].transform.scale.y *= r
+                self.models[idx].transform.scale.z *= r
+            } else {
+                self.models[idx].transform.scale.x = v
+            }
+            checkIntersections(models: &self.models)
         }
     }
     private var scaleYBinding: Binding<Float> {
-        Binding(get: { modelTransform.scale.y }) { v in
-            guard v > 0 else { return }
-            if lockScale, modelTransform.scale.y > 0 {
-                let r = v / modelTransform.scale.y
-                modelTransform.scale.y = v; modelTransform.scale.x *= r; modelTransform.scale.z *= r
-            } else { modelTransform.scale.y = v }
+        Binding(get: { self.selectedModel?.transform.scale.y ?? 1 }) { v in
+            guard v > 0, let idx = self.selectedIndex else { return }
+            if self.lockScale, self.models[idx].transform.scale.y > 0 {
+                let r = v / self.models[idx].transform.scale.y
+                self.models[idx].transform.scale.y = v
+                self.models[idx].transform.scale.x *= r
+                self.models[idx].transform.scale.z *= r
+            } else {
+                self.models[idx].transform.scale.y = v
+            }
+            checkIntersections(models: &self.models)
         }
     }
     private var scaleZBinding: Binding<Float> {
-        Binding(get: { modelTransform.scale.z }) { v in
-            guard v > 0 else { return }
-            if lockScale, modelTransform.scale.z > 0 {
-                let r = v / modelTransform.scale.z
-                modelTransform.scale.z = v; modelTransform.scale.x *= r; modelTransform.scale.y *= r
-            } else { modelTransform.scale.z = v }
+        Binding(get: { self.selectedModel?.transform.scale.z ?? 1 }) { v in
+            guard v > 0, let idx = self.selectedIndex else { return }
+            if self.lockScale, self.models[idx].transform.scale.z > 0 {
+                let r = v / self.models[idx].transform.scale.z
+                self.models[idx].transform.scale.z = v
+                self.models[idx].transform.scale.x *= r
+                self.models[idx].transform.scale.y *= r
+            } else {
+                self.models[idx].transform.scale.z = v
+            }
+            checkIntersections(models: &self.models)
         }
     }
 
-    /// A labelled floating button for the viewer overlay.
-    /// `active` adds an accent-colour border so the user can see the current state at a glance.
     @ViewBuilder
     private func overlayButton(icon: String, label: String, active: Bool, action: @escaping () -> Void) -> some View {
         VStack(spacing: 3) {
@@ -375,7 +467,6 @@ struct ContentView: View {
                     )
             }
             .buttonStyle(.plain)
-
             Text(label)
                 .font(.caption2.weight(.medium))
                 .foregroundStyle(.white)
@@ -412,7 +503,6 @@ struct ContentView: View {
 
     private var bottomPanel: some View {
         VStack(spacing: 0) {
-            // Drag handle + collapse/expand button
             Button {
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                     isPanelExpanded.toggle()
@@ -440,18 +530,23 @@ struct ContentView: View {
             }
         }
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .padding(.horizontal, 0)
         .shadow(color: .black.opacity(0.15), radius: 12, y: -4)
     }
 
-    // Collapsed: one-line summary + slice button
+    private var panelModelSummary: String {
+        switch models.count {
+        case 0: return "No models loaded"
+        case 1: return models[0].name
+        default: return "\(models.count) models"
+        }
+    }
+
     private var collapsedPanelContent: some View {
         HStack(spacing: 12) {
-            statusIcon
-                .scaleEffect(0.9)
+            statusIcon.scaleEffect(0.9)
 
             VStack(alignment: .leading, spacing: 1) {
-                Text(loadedSTLName)
+                Text(panelModelSummary)
                     .font(.subheadline.weight(.medium))
                     .lineLimit(1)
                 Text(collapsedSubtitle)
@@ -466,13 +561,12 @@ struct ContentView: View {
                 Button(role: .destructive) {
                     if let h = activeHandle { slicer_cancel(h) }
                 } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .imageScale(.large)
+                    Image(systemName: "xmark.circle.fill").imageScale(.large)
                 }
                 .buttonStyle(.plain)
             } else {
                 Button {
-                    Task.detached(priority: .userInitiated) { await runSlice() }
+                    triggerSlice()
                 } label: {
                     Label("Slice", systemImage: "slider.horizontal.3")
                         .font(.subheadline.weight(.semibold))
@@ -488,41 +582,32 @@ struct ContentView: View {
 
     private var collapsedSubtitle: String {
         switch state {
-        case .idle:
-            return profileStore.selectedProfile?.name ?? "No printer selected"
-        case .slicing(let phase, _):
-            return phase
-        case .done(_, let time, _):
-            return time.map { "Done · \($0)" } ?? "Done"
-        case .failed:
-            return "Error — tap to expand"
+        case .idle:            return profileStore.selectedProfile?.name ?? "No printer selected"
+        case .slicing(let phase, _): return phase
+        case .done(_, let time, _): return time.map { "Done · \($0)" } ?? "Done"
+        case .failed:          return "Error — tap to expand"
         }
     }
 
-    // Expanded: full controls
     private var expandedPanelContent: some View {
         VStack(spacing: 0) {
             VStack(spacing: 16) {
                 // File row
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(loadedSTLName)
+                        Text(panelModelSummary)
                             .font(.headline)
                         if let sp = sliceProfileStore.selectedProfile {
                             Text(sp.pickerSubtitle)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .font(.caption).foregroundStyle(.secondary)
                         } else {
                             Text("No slice profile selected")
-                                .font(.caption)
-                                .foregroundStyle(.red)
+                                .font(.caption).foregroundStyle(.red)
                         }
                     }
                     Spacer()
-                    Button {
-                        showFilePicker = true
-                    } label: {
-                        Label("Load STL", systemImage: "folder")
+                    Button { showFilePicker = true } label: {
+                        Label("Add STL", systemImage: "plus.app")
                             .font(.caption)
                     }
                     .buttonStyle(.bordered)
@@ -532,9 +617,7 @@ struct ContentView: View {
                 Divider()
 
                 // Printer profile row
-                Button {
-                    showProfilePicker = true
-                } label: {
+                Button { showProfilePicker = true } label: {
                     HStack {
                         Label(
                             profileStore.selectedProfile?.name ?? "No Printer Selected",
@@ -543,17 +626,13 @@ struct ContentView: View {
                         .font(.subheadline)
                         .foregroundStyle(profileStore.selectedProfile == nil ? .red : .primary)
                         Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                        Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.secondary)
                     }
                 }
                 .disabled(isBusy)
 
                 // Slice profile row
-                Button {
-                    showSliceProfilePicker = true
-                } label: {
+                Button { showSliceProfilePicker = true } label: {
                     HStack {
                         Label(
                             sliceProfileStore.selectedProfile?.name ?? "No Slice Profile Selected",
@@ -562,35 +641,27 @@ struct ContentView: View {
                         .font(.subheadline)
                         .foregroundStyle(sliceProfileStore.selectedProfile == nil ? .red : .primary)
                         Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                        Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.secondary)
                     }
                 }
                 .disabled(isBusy)
 
                 // Material profile row
-                Button {
-                    showMaterialProfilePicker = true
-                } label: {
+                Button { showMaterialProfilePicker = true } label: {
                     HStack {
                         Label(
                             materialProfileStore.selectedProfile?.name ?? "No Material Selected",
                             systemImage: "drop"
                         )
                         .font(.subheadline)
-                        .foregroundStyle(.primary)
                         Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                        Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.secondary)
                     }
                 }
                 .disabled(isBusy)
 
                 Divider()
 
-                // Status row
                 HStack(spacing: 12) {
                     statusIcon
                     Text(statusMessage)
@@ -600,19 +671,16 @@ struct ContentView: View {
                 }
 
                 if case .slicing(_, let p) = state {
-                    ProgressView(value: p)
-                        .animation(.linear(duration: 0.15), value: p)
+                    ProgressView(value: p).animation(.linear(duration: 0.15), value: p)
                 }
 
                 Divider()
 
-                // Action buttons
                 actionButtons
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 8)
 
-            // Safe area spacer
             Color.clear.frame(height: 20)
         }
     }
@@ -622,27 +690,23 @@ struct ContentView: View {
     @ViewBuilder
     private var statusIcon: some View {
         switch state {
-        case .idle:
-            Image(systemName: "circle").foregroundStyle(.secondary)
-        case .slicing:
-            ProgressView().scaleEffect(0.9)
-        case .done:
-            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-        case .failed:
-            Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
+        case .idle:    Image(systemName: "circle").foregroundStyle(.secondary)
+        case .slicing: ProgressView().scaleEffect(0.9)
+        case .done:    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+        case .failed:  Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
         }
     }
 
     private var statusMessage: String {
         switch state {
-        case .idle:                 return "Ready to slice."
-        case .slicing(let p, _):   return p
+        case .idle:               return "Ready to slice."
+        case .slicing(let p, _): return p
         case .done(let url, let time, let filament):
             var msg = "Done! \(url.lastPathComponent)"
             if let t = time { msg += "\nTime: \(t)" }
             if let f = filament { msg += "\nFilament: \(f) g" }
             return msg
-        case .failed(let msg):     return "Error: \(msg)"
+        case .failed(let msg):   return "Error: \(msg)"
         }
     }
 
@@ -650,14 +714,14 @@ struct ContentView: View {
     private var actionButtons: some View {
         VStack(spacing: 12) {
             Button {
-                Task.detached(priority: .userInitiated) { await runSlice() }
+                triggerSlice()
             } label: {
                 Label("Slice & Export G-code", systemImage: "slider.horizontal.3")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
-            .disabled(isBusy)
+            .disabled(isBusy || !hasModels)
 
             if isBusy {
                 Button(role: .destructive) {
@@ -683,33 +747,48 @@ struct ContentView: View {
         }
     }
 
-    // MARK: File import
+    // MARK: - File import
 
     private func importSTL(from url: URL) {
         let accessing = url.startAccessingSecurityScopedResource()
         defer { if accessing { url.stopAccessingSecurityScopedResource() } }
 
+        let id   = UUID()
         let dest = FileManager.default.temporaryDirectory
-            .appendingPathComponent(url.lastPathComponent)
+            .appendingPathComponent(id.uuidString + "_" + url.lastPathComponent)
         do {
             if FileManager.default.fileExists(atPath: dest.path) {
                 try FileManager.default.removeItem(at: dest)
             }
             try FileManager.default.copyItem(at: url, to: dest)
-            loadedSTLURL = dest
-            loadedSTLName = url.lastPathComponent
+
+            let newModel = PlacedModel(
+                id: id,
+                url: dest,
+                name: url.lastPathComponent,
+                geometry: nil,
+                transform: .identity
+            )
+            models.append(newModel)
+            selectedModelID = id
             state = .idle
-            // Reset state when a new model is loaded
             showLayerPreview = false
             parsedLayers = []
-            modelTransform = .identity
-            stlMeshInfo = nil
-            isModelSelected = false
-            gizmoMode = .translate
-            parseSTLPreview(url: dest)
-            Task.detached(priority: .background) {
+
+            let mode = viewerColorMode
+            isParsingSTL = true
+
+            Task.detached(priority: .userInitiated) {
+                let geo  = try? parseSTL(url: dest, colorMode: mode)
                 let info = try? parseSTLMeshInfo(url: dest)
-                await MainActor.run { stlMeshInfo = info }
+                await MainActor.run {
+                    if let idx = models.firstIndex(where: { $0.id == id }) {
+                        models[idx].geometry = geo
+                        models[idx].meshInfo = info
+                        checkIntersections(models: &models)
+                    }
+                    isParsingSTL = false
+                }
             }
         } catch {
             state = .failed(message: "Could not import STL: \(error.localizedDescription)")
@@ -717,26 +796,30 @@ struct ContentView: View {
         }
     }
 
-    private func parseSTLPreview(url: URL) {
-        isParsingSTL = true
-        let mode = viewerColorMode
-        Task.detached(priority: .userInitiated) {
-            let geo = try? parseSTL(url: url, colorMode: mode)
-            await MainActor.run {
-                loadedSTLGeometry = geo
-                isParsingSTL = false
-            }
+    // MARK: - Slice trigger (checks for intersection first)
+
+    private func triggerSlice() {
+        if anyIntersecting {
+            showIntersectingAlert = true
+        } else {
+            Task.detached(priority: .userInitiated) { await runSlice() }
         }
     }
 
-    // MARK: Slicing
+    // MARK: - Slicing
 
     private func setPhase(_ msg: String, progress: Double = 0) async {
         await MainActor.run { state = .slicing(phase: msg, progress: progress) }
     }
 
     private func runSlice() async {
-        // 0. Require both profiles
+        // 0. Require models
+        guard await MainActor.run(body: { hasModels }) else {
+            await MainActor.run { state = .failed(message: "No models loaded") ; showErrorAlert = true }
+            return
+        }
+
+        // 1. Require profiles
         guard let printerProfile = await MainActor.run(body: { profileStore.selectedProfile }) else {
             await MainActor.run { showNoProfileAlert = true }
             return
@@ -746,21 +829,19 @@ struct ContentView: View {
             return
         }
 
-        // 1. Resolve STL path
-        guard let stlURL = await MainActor.run(body: { loadedSTLURL }) else {
-            await MainActor.run { state = .failed(message: "No STL file loaded") ; showErrorAlert = true }
-            return
-        }
-        let stlPath = stlURL.path
+        // 2. Snapshot models on main thread
+        let snapshotModels = await MainActor.run(body: { models })
 
-        // 2. Output path in Documents
+        // 3. Output path in Documents
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let stem = URL(fileURLWithPath: stlPath).deletingPathExtension().lastPathComponent
+        let stem = snapshotModels.count == 1
+            ? URL(fileURLWithPath: snapshotModels[0].url.path).deletingPathExtension().lastPathComponent
+            : "multimodel_\(snapshotModels.count)"
         let outName = String(format: "%@_%.2fmm_%d.gcode",
                              stem, sliceProfile.layerHeight, sliceProfile.infillDensity)
         let gcodeURL = docs.appendingPathComponent(outName)
 
-        // 3. Create slicer context
+        // 4. Create slicer context
         await setPhase("Initialising slicer…")
         guard let handle = slicer_create() else {
             await MainActor.run { state = .failed(message: "slicer_create() returned nil") ; showErrorAlert = true }
@@ -772,7 +853,7 @@ struct ContentView: View {
             Task { @MainActor in activeHandle = nil }
         }
 
-        // 4. Apply printer profile
+        // 5. Apply printer profile
         await setPhase("Applying printer profile…")
         if !applyPrinterProfile(printerProfile, to: handle) {
             let msg = String(cString: slicer_last_error(handle))
@@ -780,7 +861,7 @@ struct ContentView: View {
             return
         }
 
-        // 5. Apply material profile (optional — falls back to bridge defaults if none selected)
+        // 6. Apply material profile (optional)
         if let materialProfile = await MainActor.run(body: { materialProfileStore.selectedProfile }) {
             await setPhase("Applying material profile…")
             if !applyMaterialProfile(materialProfile, to: handle) {
@@ -790,7 +871,7 @@ struct ContentView: View {
             }
         }
 
-        // 6. Apply slice profile
+        // 7. Apply slice profile
         await setPhase("Applying slice profile…")
         if !applySliceProfile(sliceProfile, to: handle) {
             let msg = String(cString: slicer_last_error(handle))
@@ -798,32 +879,33 @@ struct ContentView: View {
             return
         }
 
-        // 7. Load STL
-        await setPhase("Loading \(URL(fileURLWithPath: stlPath).lastPathComponent)…")
-        if slicer_load_stl(handle, stlPath) != 0 {
-            let msg = String(cString: slicer_last_error(handle))
-            await MainActor.run { state = .failed(message: msg) ; showErrorAlert = true }
-            return
+        // 8. Load each model
+        for (i, model) in snapshotModels.enumerated() {
+            await setPhase("Loading \(model.name)… (\(i+1)/\(snapshotModels.count))")
+            let objIdx = slicer_add_stl(handle, model.url.path)
+            if objIdx < 0 {
+                let msg = String(cString: slicer_last_error(handle))
+                await MainActor.run { state = .failed(message: msg) ; showErrorAlert = true }
+                return
+            }
+
+            var mt = SlicerModelTransform()
+            mt.pos_x_mm  = model.transform.positionMM.x
+            mt.pos_z_mm  = model.transform.positionMM.z
+            mt.rot_x_deg = model.transform.rotationDeg.x
+            mt.rot_y_deg = model.transform.rotationDeg.y
+            mt.rot_z_deg = model.transform.rotationDeg.z
+            mt.scale_x   = model.transform.scale.x
+            mt.scale_y   = model.transform.scale.y
+            mt.scale_z   = model.transform.scale.z
+            if slicer_set_object_transform(handle, objIdx, &mt) != 0 {
+                let msg = String(cString: slicer_last_error(handle))
+                await MainActor.run { state = .failed(message: msg) ; showErrorAlert = true }
+                return
+            }
         }
 
-        // 7a. Apply model transform (position/rotation/scale from the 3D viewer)
-        let currentTransform = await MainActor.run(body: { modelTransform })
-        var mt = SlicerModelTransform()
-        mt.pos_x_mm  = currentTransform.positionMM.x
-        mt.pos_z_mm  = currentTransform.positionMM.z
-        mt.rot_x_deg = currentTransform.rotationDeg.x
-        mt.rot_y_deg = currentTransform.rotationDeg.y
-        mt.rot_z_deg = currentTransform.rotationDeg.z
-        mt.scale_x   = currentTransform.scale.x
-        mt.scale_y   = currentTransform.scale.y
-        mt.scale_z   = currentTransform.scale.z
-        if slicer_set_model_transform(handle, &mt) != 0 {
-            let msg = String(cString: slicer_last_error(handle))
-            await MainActor.run { state = .failed(message: msg) ; showErrorAlert = true }
-            return
-        }
-
-        // 8. Slice with progress
+        // 9. Slice with progress
         let lhStr = String(format: "%.2g", sliceProfile.layerHeight)
         await setPhase("Slicing at \(lhStr) mm / \(sliceProfile.infillDensity)% infill…")
 
@@ -837,8 +919,6 @@ struct ContentView: View {
         }
         let relayPtr = Unmanaged.passRetained(relay).toOpaque()
 
-        // Run the blocking C++ call on a DispatchQueue thread so it does not
-        // occupy a cooperative-thread-pool thread and starve UI/async updates.
         let sliceResult = await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 let result = slicer_slice_with_progress(
@@ -859,17 +939,13 @@ struct ContentView: View {
         if sliceResult != 0 {
             let msg = String(cString: slicer_last_error(handle))
             await MainActor.run {
-                if msg == "canceled" {
-                    state = .idle
-                } else {
-                    state = .failed(message: msg)
-                    showErrorAlert = true
-                }
+                if msg == "canceled" { state = .idle }
+                else { state = .failed(message: msg) ; showErrorAlert = true }
             }
             return
         }
 
-        // 9. Export G-code
+        // 10. Export G-code
         await setPhase("Exporting G-code…", progress: 0.95)
         if slicer_export_gcode(handle, gcodeURL.path) != 0 {
             let msg = String(cString: slicer_last_error(handle))
@@ -877,7 +953,7 @@ struct ContentView: View {
             return
         }
 
-        // 10. Parse stats and layer preview data
+        // 11. Parse stats and layer preview
         await setPhase("Parsing results…", progress: 0.99)
         let (printTime, filamentG) = parseGCodeStats(url: gcodeURL)
         let layers = parseGCode(url: gcodeURL)
@@ -886,7 +962,7 @@ struct ContentView: View {
             state = .done(gcodeURL: gcodeURL, printTime: printTime, filamentG: filamentG)
             parsedLayers = layers
             currentLayerIndex = max(0, layers.count - 1)
-            showLayerPreview = false   // start on model view; user can switch via overlay button
+            showLayerPreview = false
         }
     }
 
@@ -967,7 +1043,7 @@ struct ContentView: View {
     }
 
     private func applyPrinterProfile(_ profile: PrinterProfile, to handle: SlicerHandle) -> Bool {
-        let nozzle = Float(profile.extruders.first?.nozzleDiameter ?? 0.4)
+        let nozzle   = Float(profile.extruders.first?.nozzleDiameter ?? 0.4)
         let filament = Float(profile.extruders.first?.compatibleMaterialDiameters.first ?? 1.75)
 
         return profile.startGCode.withCString { startPtr in

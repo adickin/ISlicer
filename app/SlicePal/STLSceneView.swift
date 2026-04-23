@@ -16,16 +16,15 @@ enum GizmoMode: Equatable { case translate, rotate, scale }
 // MARK: - STLSceneView
 
 struct STLSceneView: UIViewRepresentable {
-    let geometry: SCNGeometry?
+    var models: [PlacedModel]
+    var selectedModelID: UUID?
     var bedX: Double = 220
     var bedY: Double = 220
     var showWireframe: Bool = false
-    var stlURL: URL? = nil
-    var modelTransform: ModelTransform = .identity
     var gizmoMode: GizmoMode = .translate
     var lockScale: Bool = true
-    var onTransformChange: ((ModelTransform) -> Void)? = nil
-    var onSelectionChange: ((Bool) -> Void)? = nil
+    var onTransformChange: ((UUID, ModelTransform) -> Void)? = nil
+    var onSelectionChange: ((UUID?) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -52,19 +51,7 @@ struct STLSceneView: UIViewRepresentable {
         axesNode.name = "axes"
         scene.rootNode.addChildNode(axesNode)
 
-        let pivotNode = SCNNode()
-        pivotNode.name = "pivot"
-        scene.rootNode.addChildNode(pivotNode)
-        context.coordinator.pivotNode = pivotNode
-
-        let meshNode = SCNNode()
-        meshNode.name = "mesh"
-        meshNode.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)
-        pivotNode.addChildNode(meshNode)
-        context.coordinator.meshNode = meshNode
-
-        // Gizmo container — all three mode groups live here at unit scale.
-        // We set container.scale to resize them all together.
+        // Gizmo container — global, repositioned over the selected model.
         let container = SCNNode()
         container.name = "gizmoContainer"
         container.isHidden = true
@@ -132,10 +119,9 @@ struct STLSceneView: UIViewRepresentable {
 
     func updateUIView(_ scnView: SCNView, context: Context) {
         let coord = context.coordinator
-        coord.onTransformChange    = onTransformChange
-        coord.onSelectionChange    = onSelectionChange
-        coord.currentTransform     = modelTransform
-        coord.lockScale            = lockScale
+        coord.onTransformChange = onTransformChange
+        coord.onSelectionChange = onSelectionChange
+        coord.lockScale         = lockScale
 
         // 1. Rebuild bed/axes on dimension change.
         if coord.lastBedX != bedX || coord.lastBedY != bedY, let scene = scnView.scene {
@@ -148,81 +134,139 @@ struct STLSceneView: UIViewRepresentable {
             coord.lastBedX = bedX; coord.lastBedY = bedY
         }
 
-        // 2. Gizmo mode change — update group visibility.
+        // 2. Gizmo mode change.
         if coord.gizmoMode != gizmoMode {
             coord.gizmoMode = gizmoMode
             coord.updateGizmoGroupVisibility()
         }
 
-        guard let meshNode = coord.meshNode, let cam = coord.cameraNode else { return }
+        guard let scene = scnView.scene else { return }
 
-        // 3. Apply user transform to pivot.
-        if coord.lastTransform != modelTransform, let pivot = coord.pivotNode {
-            let t = modelTransform
-            let r = t.rotationDeg * (Float.pi / 180)
-            pivot.position    = SCNVector3(t.positionMM.x / 100, t.positionMM.y / 100, t.positionMM.z / 100)
-            pivot.eulerAngles = SCNVector3(r.x, r.y, r.z)
-            pivot.scale       = SCNVector3(t.scale.x, t.scale.y, t.scale.z)
-            coord.lastTransform = t
+        // 3. Remove nodes for models no longer present.
+        let currentIDs = Set(models.map { $0.id })
+        for id in Array(coord.modelEntries.keys) where !currentIDs.contains(id) {
+            coord.modelEntries[id]?.pivot.removeFromParentNode()
+            coord.modelEntries.removeValue(forKey: id)
         }
 
-        // 4. Keep gizmo centred on model.
-        if let container = coord.gizmoContainerNode, let pivot = coord.pivotNode {
-            container.position = pivot.convertPosition(
-                SCNVector3(0, coord.modelHalfHeight, 0), to: nil)
+        // 4. Sync selection state and currentTransform into coordinator.
+        // Read transform directly from the models array — it already holds the value
+        // that onTransformChange just wrote, so the pan handler's next delta is correct.
+        coord.selectedModelID = selectedModelID
+        if let id = selectedModelID,
+           let t = models.first(where: { $0.id == id })?.transform {
+            coord.currentTransform = t
         }
 
-        // 5. Wireframe.
-        if coord.lastShowWireframe != showWireframe, let geo = meshNode.geometry {
-            applyWireframe(geo, show: showWireframe)
+        // 5. Add / update nodes for each model.
+        for model in models {
+            // Create entry if new.
+            if coord.modelEntries[model.id] == nil {
+                let pivot = SCNNode()
+                pivot.name = model.id.uuidString
+                scene.rootNode.addChildNode(pivot)
+
+                let mesh = SCNNode()
+                mesh.name = "mesh_" + model.id.uuidString
+                mesh.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)
+                pivot.addChildNode(mesh)
+
+                coord.modelEntries[model.id] = Coordinator.ModelEntry(pivot: pivot, mesh: mesh)
+            }
+
+            var entry = coord.modelEntries[model.id]!
+
+            // 5a. Geometry update.
+            if entry.lastGeometry !== model.geometry {
+                entry.lastGeometry = model.geometry
+                entry.mesh.geometry = model.geometry
+
+                if let geo = model.geometry {
+                    applyWireframe(geo, show: showWireframe)
+
+                    let (minB, maxB) = geo.boundingBox
+                    entry.mesh.position = SCNVector3(
+                        -(minB.x + maxB.x) / 2,
+                        -minB.z,
+                         (minB.y + maxB.y) / 2)
+
+                    let modelDiag = simd_length(SIMD3<Float>(
+                        maxB.x - minB.x, maxB.y - minB.y, maxB.z - minB.z))
+                    entry.halfHeight = (maxB.z - minB.z) / 2
+                    entry.gizmoScale = max(modelDiag * 0.55, 0.06)
+
+                    // Rebuild bounding box wireframe.
+                    entry.bboxNode?.removeFromParentNode()
+                    let bbox = makeBoundingBoxNode(min: minB, max: maxB)
+                    bbox.isHidden = model.id != selectedModelID
+                    entry.pivot.addChildNode(bbox)
+                    entry.bboxNode = bbox
+
+                    // Reset camera only for the first model loaded in a fresh scene.
+                    if coord.lastCameraModelID == nil, let cam = coord.cameraNode {
+                        coord.lastCameraModelID = model.id
+                        let modelH = maxB.z - minB.z
+                        let maxExt = max(maxB.x - minB.x, maxB.y - minB.y, modelH)
+                        let lookAt  = SCNVector3(0, modelH / 2, 0)
+                        let bedDiag = Float(sqrt(bedX * bedX + bedY * bedY)) / 100
+                        let dist    = max(maxExt * 2.0, bedDiag)
+                        cam.position = SCNVector3(dist * 0.75, modelH / 2 + dist * 0.5, dist)
+                        cam.look(at: lookAt)
+                        scnView.pointOfView = cam
+                        scnView.defaultCameraController.target = lookAt
+                    }
+                }
+
+                coord.modelEntries[model.id] = entry
+            }
+
+            // 5b. Transform update.
+            if entry.lastTransform != model.transform {
+                let t = model.transform
+                let r = t.rotationDeg * (Float.pi / 180)
+                entry.pivot.position    = SCNVector3(t.positionMM.x / 100,
+                                                     t.positionMM.y / 100,
+                                                     t.positionMM.z / 100)
+                entry.pivot.eulerAngles = SCNVector3(r.x, r.y, r.z)
+                entry.pivot.scale       = SCNVector3(t.scale.x, t.scale.y, t.scale.z)
+                entry.lastTransform     = t
+                coord.modelEntries[model.id] = entry
+            }
+
+            // 5c. Intersection / selection colour via emission.
+            if let geo = entry.mesh.geometry {
+                for mat in geo.materials {
+                    if model.isIntersecting {
+                        mat.emission.contents = UIColor(red: 0.7, green: 0, blue: 0, alpha: 1)
+                    } else {
+                        mat.emission.contents = UIColor.black
+                    }
+                }
+            }
+
+            // 5d. Bounding box visibility.
+            entry.bboxNode?.isHidden = (model.id != selectedModelID)
+        }
+
+        // 6. Update gizmo position / scale to the selected model.
+        if let id = selectedModelID, let entry = coord.modelEntries[id] {
+            let worldCenter = entry.pivot.convertPosition(
+                SCNVector3(0, entry.halfHeight, 0), to: nil)
+            coord.gizmoContainerNode?.position = worldCenter
+            let s = entry.gizmoScale
+            coord.gizmoContainerNode?.scale = SCNVector3(s, s, s)
+        }
+
+        // 7. Gizmo visibility.
+        coord.updateGizmoGroupVisibility()
+
+        // 8. Wireframe update.
+        if coord.lastShowWireframe != showWireframe {
+            for entry in coord.modelEntries.values {
+                if let geo = entry.mesh.geometry { applyWireframe(geo, show: showWireframe) }
+            }
             coord.lastShowWireframe = showWireframe
         }
-
-        // 6. No geometry change → done.
-        guard coord.lastGeometry !== geometry else { return }
-
-        coord.isModelSelected = false
-        coord.updateGizmoGroupVisibility()   // hides container
-        coord.lastGeometry = geometry
-        meshNode.geometry = geometry
-
-        if let geo = geometry {
-            applyWireframe(geo, show: showWireframe)
-            coord.lastShowWireframe = showWireframe
-        }
-
-        guard let geo = geometry else { return }
-
-        // 7. Position mesh on bed.
-        let (minB, maxB) = geo.boundingBox
-        meshNode.position = SCNVector3(
-            -(minB.x + maxB.x) / 2,
-            -minB.z,
-             (minB.y + maxB.y) / 2)
-
-        // 8. Scale gizmo container proportionally to model.
-        let modelDiag = simd_length(SIMD3<Float>(maxB.x - minB.x, maxB.y - minB.y, maxB.z - minB.z))
-        coord.modelHalfHeight = (maxB.z - minB.z) / 2
-        let s = max(modelDiag * 0.55, 0.06)
-        coord.gizmoContainerNode?.scale = SCNVector3(s, s, s)
-
-        // 9. Rebuild bounding box wireframe.
-        coord.setupBoundingBox(min: minB, max: maxB)
-
-        // 9. Reset camera only when file changes.
-        guard coord.lastSTLURL != stlURL else { return }
-        coord.lastSTLURL = stlURL
-        let modelH = maxB.z - minB.z
-        let maxExt = max(maxB.x - minB.x, maxB.y - minB.y, modelH)
-        let lookAt  = SCNVector3(0, modelH / 2, 0)
-        // Keep at least the same distance as the initial bed-view camera so the
-        // orbit controller's zoom range isn't shrunk when a small model loads.
-        let bedDiag = Float(sqrt(bedX * bedX + bedY * bedY)) / 100
-        let dist    = max(maxExt * 2.0, bedDiag)
-        cam.position = SCNVector3(dist * 0.75, modelH / 2 + dist * 0.5, dist)
-        cam.look(at: lookAt)
-        scnView.pointOfView = cam
-        scnView.defaultCameraController.target = lookAt
     }
 
     private func applyWireframe(_ geo: SCNGeometry, show: Bool) {
@@ -231,9 +275,44 @@ struct STLSceneView: UIViewRepresentable {
     }
 }
 
+// MARK: - Bounding box wireframe helper
+
+private func makeBoundingBoxNode(min minB: SCNVector3, max maxB: SCNVector3) -> SCNNode {
+    // Pivot-local extents after the mesh node's –90° X rotation:
+    //   X: [–w/2 … +w/2], Y: [0 … h], Z: [–d/2 … +d/2]
+    let hw = (maxB.x - minB.x) / 2
+    let hh = maxB.z - minB.z
+    let hd = (maxB.y - minB.y) / 2
+
+    let verts: [SCNVector3] = [
+        SCNVector3(-hw, 0,  -hd), SCNVector3( hw, 0,  -hd),
+        SCNVector3( hw, 0,   hd), SCNVector3(-hw, 0,   hd),
+        SCNVector3(-hw, hh, -hd), SCNVector3( hw, hh, -hd),
+        SCNVector3( hw, hh,  hd), SCNVector3(-hw, hh,  hd),
+    ]
+    let idx: [Int32] = [
+        0,1, 1,2, 2,3, 3,0,
+        4,5, 5,6, 6,7, 7,4,
+        0,4, 1,5, 2,6, 3,7,
+    ]
+    let geo = SCNGeometry(
+        sources: [SCNGeometrySource(vertices: verts)],
+        elements: [SCNGeometryElement(indices: idx, primitiveType: .line)])
+    let mat = SCNMaterial()
+    mat.diffuse.contents = UIColor(white: 1, alpha: 0.55)
+    mat.lightingModel = .constant
+    mat.readsFromDepthBuffer = false
+    mat.writesToDepthBuffer  = false
+    geo.materials = [mat]
+
+    let node = SCNNode(geometry: geo)
+    node.name = "boundingBox"
+    node.renderingOrder = 50
+    return node
+}
+
 // MARK: - Gizmo builders (unit scale — container node is scaled externally)
 
-/// Arrow shaft + cone tip, pointing along +Y, rotated by euler.
 private func arrow(shaft: CGFloat, shaftR: CGFloat,
                    head: CGFloat, headR: CGFloat,
                    color: UIColor, euler: SCNVector3) -> SCNNode {
@@ -251,7 +330,6 @@ private func arrow(shaft: CGFloat, shaftR: CGFloat,
     let hn = SCNNode(geometry: hg); hn.position = SCNVector3(0, Float(shaft)+Float(head)/2, 0)
     hn.renderingOrder = 100
 
-    // Invisible wider hit target covering the whole arrow for easier selection
     let hitR = headR * 1.5
     let totalLen = shaft + head
     let hitGeo = SCNCylinder(radius: hitR, height: totalLen)
@@ -295,9 +373,7 @@ private func makeTranslateGizmo() -> SCNNode {
     return root
 }
 
-/// A torus ring node. pipeHit is a wider invisible torus used as the tap target.
 private func ringNode(ringR: CGFloat, pipeVis: CGFloat, color: UIColor, euler: SCNVector3) -> SCNNode {
-    // Invisible wide torus for easier hit-testing
     let hitGeo = SCNTorus(ringRadius: ringR, pipeRadius: pipeVis * 3)
     let hitMat = SCNMaterial()
     hitMat.diffuse.contents = UIColor.clear
@@ -309,7 +385,6 @@ private func ringNode(ringR: CGFloat, pipeVis: CGFloat, color: UIColor, euler: S
     n.eulerAngles = euler
     n.renderingOrder = 100
 
-    // Visible thin torus
     let visGeo = SCNTorus(ringRadius: ringR, pipeRadius: pipeVis)
     let visMat = SCNMaterial()
     visMat.diffuse.contents = color
@@ -328,19 +403,16 @@ private func makeRotateGizmo() -> SCNNode {
     let ringR: CGFloat = 1.1, pipeVis: CGFloat = 0.055
     let root = SCNNode()
 
-    // X: ring in YZ plane — rotate torus (Y-axis hole) so hole aligns with X: Rz(+90°)
     let xr = ringNode(ringR: ringR, pipeVis: pipeVis,
                       color: UIColor(red: 1.0, green: 0.2, blue: 0.2, alpha: 1),
                       euler: SCNVector3(0, 0, Float.pi/2))
     xr.name = "gizmo_rot_x"
 
-    // Y: ring in XZ plane — default SCNTorus
     let yr = ringNode(ringR: ringR, pipeVis: pipeVis,
                       color: UIColor(red: 0.2, green: 0.9, blue: 0.2, alpha: 1),
                       euler: SCNVector3(0, 0, 0))
     yr.name = "gizmo_rot_y"
 
-    // Z: ring in XY plane — Rx(+90°) so hole aligns with Z
     let zr = ringNode(ringR: ringR, pipeVis: pipeVis,
                       color: UIColor(red: 0.3, green: 0.5, blue: 1.0, alpha: 1),
                       euler: SCNVector3(Float.pi/2, 0, 0))
@@ -350,7 +422,6 @@ private func makeRotateGizmo() -> SCNNode {
     return root
 }
 
-/// Shaft + cube tip, pointing along +Y, rotated by euler.
 private func scaleHandle(shaft: CGFloat, shaftR: CGFloat, cube: CGFloat,
                           color: UIColor, euler: SCNVector3) -> SCNNode {
     let mat = SCNMaterial()
@@ -368,7 +439,6 @@ private func scaleHandle(shaft: CGFloat, shaftR: CGFloat, cube: CGFloat,
     let cn = SCNNode(geometry: cg); cn.position = SCNVector3(0, Float(shaft)+Float(cube)/2, 0)
     cn.renderingOrder = 100
 
-    // Invisible wider hit target covering the whole handle
     let hitR = cube * 0.75
     let totalLen = shaft + cube
     let hitGeo = SCNCylinder(radius: hitR, height: totalLen)
@@ -436,7 +506,6 @@ func makePrintBedNode(bedX: Double, bedY: Double) -> SCNNode {
     geo.materials = [mat]
     let root = SCNNode(geometry: geo)
 
-    // Dimension labels along each edge
     let fontSize = CGFloat(max(scaleX, scaleZ)) * 0.07
     let labelMat = SCNMaterial()
     labelMat.diffuse.contents = UIColor(white: 0.7, alpha: 1)
@@ -448,7 +517,6 @@ func makePrintBedNode(bedX: Double, bedY: Double) -> SCNNode {
         geo.font = UIFont.systemFont(ofSize: fontSize, weight: .medium)
         geo.flatness = 0.1
         geo.materials = [labelMat]
-        // SCNText origin is bottom-left; shift so it centres on the position
         let (tMin, tMax) = geo.boundingBox
         let tw = tMax.x - tMin.x
         let node = SCNNode(geometry: geo)
@@ -459,10 +527,8 @@ func makePrintBedNode(bedX: Double, bedY: Double) -> SCNNode {
     }
 
     let pad = Float(fontSize) * 1.2
-    // X label: centred along the front edge (positive Z side)
     root.addChildNode(bedLabel(String(format: "%.0f mm", bedX),
                                position: SCNVector3(0, 0.01, halfZ + pad)))
-    // Y (depth) label: centred along the right edge (positive X side)
     root.addChildNode(bedLabel(String(format: "%.0f mm", bedY),
                                position: SCNVector3(halfX + pad, 0.01, 0)))
 
@@ -494,134 +560,91 @@ func makeAxesNode(bedX: Double, bedY: Double) -> SCNNode {
 // MARK: - Coordinator
 
 final class Coordinator: NSObject, UIGestureRecognizerDelegate {
-    // Scene nodes
-    weak var pivotNode:           SCNNode?
-    weak var meshNode:            SCNNode?
-    weak var cameraNode:          SCNNode?
+
+    // MARK: Per-model node tracking
+    struct ModelEntry {
+        let pivot: SCNNode
+        let mesh:  SCNNode
+        var bboxNode:      SCNNode?
+        var lastGeometry:  SCNGeometry?
+        var lastTransform: ModelTransform = .identity
+        var halfHeight:    Float = 0
+        var gizmoScale:    Float = 0.3
+    }
+    var modelEntries: [UUID: ModelEntry] = [:]
+
+    // MARK: Global gizmo (repositioned per selection)
     weak var gizmoContainerNode:  SCNNode?
     weak var gizmoTranslateGroup: SCNNode?
     weak var gizmoRotateGroup:    SCNNode?
     weak var gizmoScaleGroup:     SCNNode?
 
-    // State
-    var lastGeometry:      SCNGeometry? = nil
-    var lastBedX:          Double = 0
-    var lastBedY:          Double = 0
-    var lastShowWireframe: Bool = false
-    var lastSTLURL:        URL? = nil
-    var lastTransform:     ModelTransform = .identity
-    var modelHalfHeight:   Float = 0
+    // MARK: Camera
+    weak var cameraNode: SCNNode?
+    var lastCameraModelID: UUID? = nil
 
-    // Selection
-    var isModelSelected:   Bool = false
+    // MARK: Persistent view state
+    var selectedModelID:    UUID? = nil
+    var gizmoMode:          GizmoMode = .translate
+    var lockScale:          Bool = true
+    var lastBedX:           Double = 0
+    var lastBedY:           Double = 0
+    var lastShowWireframe:  Bool = false
 
-    // Gizmo mode
-    var gizmoMode:         GizmoMode = .translate
+    // MARK: Drag state
+    weak var tapGesture:    UITapGestureRecognizer?
+    weak var panGesture:    UIPanGestureRecognizer?
+    var dragAxis:           GizmoAxis? = nil
+    var dragMode:           GizmoMode = .translate
+    var lastPanLocation:    CGPoint? = nil
+    var currentTransform:   ModelTransform = .identity
 
-    // Scale lock
-    var lockScale:         Bool = true
+    // MARK: Callbacks
+    var onTransformChange: ((UUID, ModelTransform) -> Void)? = nil
+    var onSelectionChange: ((UUID?) -> Void)? = nil
 
-    // Bounding box
-    weak var boundingBoxNode: SCNNode?
-
-    // Drag state
-    weak var tapGesture:   UITapGestureRecognizer?
-    weak var panGesture:   UIPanGestureRecognizer?
-    var dragAxis:          GizmoAxis? = nil
-    var dragMode:          GizmoMode = .translate
-    var lastPanLocation:   CGPoint? = nil
-    var currentTransform:  ModelTransform = .identity
-
-    // Callbacks
-    var onTransformChange: ((ModelTransform) -> Void)? = nil
-    var onSelectionChange: ((Bool) -> Void)? = nil
-
-    // MARK: Group visibility
+    // MARK: Gizmo visibility
 
     func updateGizmoGroupVisibility() {
-        let show = isModelSelected && meshNode?.geometry != nil
+        guard let id = selectedModelID, let entry = modelEntries[id] else {
+            gizmoContainerNode?.isHidden = true
+            return
+        }
+        let show = entry.mesh.geometry != nil
         gizmoContainerNode?.isHidden = !show
-        boundingBoxNode?.isHidden    = !show
         guard show else { return }
         gizmoTranslateGroup?.isHidden = gizmoMode != .translate
         gizmoRotateGroup?.isHidden    = gizmoMode != .rotate
         gizmoScaleGroup?.isHidden     = gizmoMode != .scale
     }
 
-    // MARK: Bounding box
-
-    func setupBoundingBox(min minB: SCNVector3, max maxB: SCNVector3) {
-        boundingBoxNode?.removeFromParentNode()
-
-        // Pivot-local extents after the mesh node's -90° X rotation:
-        //   X: [-(maxB.x-minB.x)/2 .. +(maxB.x-minB.x)/2]
-        //   Y: [0 .. maxB.z-minB.z]
-        //   Z: [-(maxB.y-minB.y)/2 .. +(maxB.y-minB.y)/2]
-        let hw = (maxB.x - minB.x) / 2
-        let hh = maxB.z - minB.z
-        let hd = (maxB.y - minB.y) / 2
-
-        let verts: [SCNVector3] = [
-            SCNVector3(-hw, 0,   -hd), SCNVector3( hw, 0,   -hd),  // 0,1 bottom-front
-            SCNVector3( hw, 0,    hd), SCNVector3(-hw, 0,    hd),  // 2,3 bottom-back
-            SCNVector3(-hw, hh,  -hd), SCNVector3( hw, hh,  -hd),  // 4,5 top-front
-            SCNVector3( hw, hh,   hd), SCNVector3(-hw, hh,   hd),  // 6,7 top-back
-        ]
-        let idx: [Int32] = [
-            0,1, 1,2, 2,3, 3,0,   // bottom ring
-            4,5, 5,6, 6,7, 7,4,   // top ring
-            0,4, 1,5, 2,6, 3,7,   // vertical edges
-        ]
-        let geo = SCNGeometry(
-            sources: [SCNGeometrySource(vertices: verts)],
-            elements: [SCNGeometryElement(indices: idx, primitiveType: .line)])
-        let mat = SCNMaterial()
-        mat.diffuse.contents = UIColor(white: 1, alpha: 0.55)
-        mat.lightingModel = .constant
-        mat.readsFromDepthBuffer = false
-        mat.writesToDepthBuffer  = false
-        geo.materials = [mat]
-
-        let node = SCNNode(geometry: geo)
-        node.name = "boundingBox"
-        node.renderingOrder = 50
-        node.isHidden = !isModelSelected
-        pivotNode?.addChildNode(node)
-        boundingBoxNode = node
-    }
-
-    // MARK: Gesture delegate
-
-    func gestureRecognizerShouldBegin(_ gr: UIGestureRecognizer) -> Bool {
-        guard gr === panGesture,
-              let scnView = gr.view as? SCNView,
-              isModelSelected,
-              gizmoContainerNode?.isHidden == false else { return false }
-        let hits = scnView.hitTest(gr.location(in: scnView),
-                                   options: [.searchMode: SCNHitTestSearchMode.all.rawValue])
-        return hits.contains { gizmoNodeInfo($0.node) != nil }
-    }
-
-    func gestureRecognizer(_ gr: UIGestureRecognizer,
-                           shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
-        return gr === panGesture || other === panGesture
-    }
-
     // MARK: Tap
 
     @objc func handleTap(_ tap: UITapGestureRecognizer) {
         guard let scnView = tap.view as? SCNView else { return }
-        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),
+                                        to: nil, from: nil, for: nil)
         let hits = scnView.hitTest(tap.location(in: scnView), options: nil)
         let hit  = hits.first?.node
-        if gizmoNodeInfo(hit) != nil { return }  // tapping gizmo doesn't change selection
-        setSelected(isPartOfModel(hit))
+        if gizmoNodeInfo(hit) != nil { return }
+        setSelected(id: modelID(for: hit))
     }
 
-    private func setSelected(_ sel: Bool) {
-        isModelSelected = sel
+    private func setSelected(id: UUID?) {
+        selectedModelID = id
+        if let id = id { currentTransform = modelEntries[id]?.lastTransform ?? .identity }
         updateGizmoGroupVisibility()
-        onSelectionChange?(sel)
+        onSelectionChange?(id)
+    }
+
+    // Returns the model UUID that contains `node` by walking up the hierarchy.
+    private func modelID(for node: SCNNode?) -> UUID? {
+        var n = node
+        while let cur = n {
+            if let id = UUID(uuidString: cur.name ?? ""), modelEntries[id] != nil { return id }
+            n = cur.parent
+        }
+        return nil
     }
 
     // MARK: Pan
@@ -644,7 +667,8 @@ final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         case .changed:
             guard let axis = dragAxis,
                   let last = lastPanLocation,
-                  let pivot = pivotNode else { return }
+                  let id = selectedModelID,
+                  let entry = modelEntries[id] else { return }
 
             let cur   = gesture.location(in: scnView)
             let delta = CGPoint(x: cur.x - last.x, y: cur.y - last.y)
@@ -654,7 +678,7 @@ final class Coordinator: NSObject, UIGestureRecognizerDelegate {
             switch dragMode {
             case .translate:
                 let dm = axisDeltaMM(screenDelta: delta, dir: axis.worldDir,
-                                     in: scnView, origin: pivot.worldPosition)
+                                     in: scnView, origin: entry.pivot.worldPosition)
                 switch axis {
                 case .x: t.positionMM.x += dm
                 case .y: t.positionMM.y += dm
@@ -663,7 +687,7 @@ final class Coordinator: NSObject, UIGestureRecognizerDelegate {
 
             case .rotate:
                 let deg = rotateAngleDeg(screenDelta: delta, axis: axis.worldDir,
-                                         in: scnView, origin: pivot.worldPosition)
+                                         in: scnView, origin: entry.pivot.worldPosition)
                 switch axis {
                 case .x: t.rotationDeg.x += deg
                 case .y: t.rotationDeg.y += deg
@@ -672,8 +696,7 @@ final class Coordinator: NSObject, UIGestureRecognizerDelegate {
 
             case .scale:
                 let proj = axisScreenPx(screenDelta: delta, dir: axis.worldDir,
-                                        in: scnView, origin: pivot.worldPosition)
-                // Per-axis scale: dragging 200 px doubles that axis.
+                                        in: scnView, origin: entry.pivot.worldPosition)
                 let mult = max(0.001, 1.0 + proj / 200.0)
                 if lockScale {
                     t.scale.x = max(0.001, t.scale.x * mult)
@@ -689,7 +712,7 @@ final class Coordinator: NSObject, UIGestureRecognizerDelegate {
             }
 
             currentTransform = t
-            onTransformChange?(t)
+            onTransformChange?(id, t)
 
         case .ended, .cancelled:
             dragAxis = nil
@@ -699,6 +722,23 @@ final class Coordinator: NSObject, UIGestureRecognizerDelegate {
 
         default: break
         }
+    }
+
+    // MARK: Gesture delegate
+
+    func gestureRecognizerShouldBegin(_ gr: UIGestureRecognizer) -> Bool {
+        guard gr === panGesture,
+              let scnView = gr.view as? SCNView,
+              selectedModelID != nil,
+              gizmoContainerNode?.isHidden == false else { return false }
+        let hits = scnView.hitTest(gr.location(in: scnView),
+                                   options: [.searchMode: SCNHitTestSearchMode.all.rawValue])
+        return hits.contains { gizmoNodeInfo($0.node) != nil }
+    }
+
+    func gestureRecognizer(_ gr: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        return gr === panGesture || other === panGesture
     }
 
     // MARK: Helpers
@@ -722,21 +762,12 @@ final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         return nil
     }
 
-    private func isPartOfModel(_ node: SCNNode?) -> Bool {
-        var n = node
-        while let cur = n {
-            if cur === meshNode || cur === pivotNode { return true }
-            n = cur.parent
-        }
-        return false
-    }
-
     private func setGizmoAxisHighlight(active: GizmoAxis, mode: GizmoMode) {
         let names: [(String, GizmoAxis)] = {
             switch mode {
-            case .translate: return [("gizmo_x", .x), ("gizmo_y", .y), ("gizmo_z", .z)]
-            case .rotate:    return [("gizmo_rot_x", .x), ("gizmo_rot_y", .y), ("gizmo_rot_z", .z)]
-            case .scale:     return [("gizmo_scale_x", .x), ("gizmo_scale_y", .y), ("gizmo_scale_z", .z)]
+            case .translate: return [("gizmo_x",.x),("gizmo_y",.y),("gizmo_z",.z)]
+            case .rotate:    return [("gizmo_rot_x",.x),("gizmo_rot_y",.y),("gizmo_rot_z",.z)]
+            case .scale:     return [("gizmo_scale_x",.x),("gizmo_scale_y",.y),("gizmo_scale_z",.z)]
             }
         }()
         let group: SCNNode? = {
@@ -759,7 +790,6 @@ final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         }
     }
 
-    /// Screen-space dot-projection of drag onto world axis. Returns mm.
     private func axisDeltaMM(screenDelta: CGPoint, dir: SIMD3<Float>,
                               in v: SCNView, origin: SCNVector3) -> Float {
         let p0 = v.projectPoint(origin)
@@ -770,7 +800,6 @@ final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         return Float((screenDelta.x*sx + screenDelta.y*sy) / sq) * 100
     }
 
-    /// Screen-space dot-projection of drag onto world axis. Returns raw pixels.
     private func axisScreenPx(screenDelta: CGPoint, dir: SIMD3<Float>,
                                in v: SCNView, origin: SCNVector3) -> Float {
         let p0 = v.projectPoint(origin)
@@ -781,17 +810,15 @@ final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         return Float((screenDelta.x*sx + screenDelta.y*sy) / len)
     }
 
-    /// Projects drag onto the screen-space perpendicular of the axis. Returns degrees.
     private func rotateAngleDeg(screenDelta: CGPoint, axis: SIMD3<Float>,
                                  in v: SCNView, origin: SCNVector3) -> Float {
         let p0 = v.projectPoint(origin)
         let p1 = v.projectPoint(SCNVector3(origin.x+axis.x, origin.y+axis.y, origin.z+axis.z))
-        // Perpendicular to screen-projected axis
         let px = -(CGFloat(p1.y-p0.y))
         let py =   CGFloat(p1.x-p0.x)
         let plen = sqrt(px*px + py*py)
         guard plen > 0.1 else { return 0 }
         let proj = (screenDelta.x*px + screenDelta.y*py) / plen
-        return Float(proj) * 0.3   // 0.3 degrees per pixel
+        return Float(proj) * 0.3
     }
 }

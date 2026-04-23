@@ -634,4 +634,120 @@ int slicer_set_model_transform(SlicerHandle handle,
     }
 }
 
+// ── Multi-model helpers ───────────────────────────────────────────────────────
+
+// Shared transform math extracted into a free function so both
+// slicer_set_model_transform and slicer_set_object_transform can use it.
+static int apply_transform_to_object(SlicerContext* ctx,
+                                     Slic3r::ModelObject* obj,
+                                     const SlicerModelTransform* t)
+{
+    double bed_cx = ctx->origin_at_center ? 0.0 : ctx->bed_x / 2.0;
+    double bed_cy = ctx->origin_at_center ? 0.0 : ctx->bed_y / 2.0;
+
+    double sx = static_cast<double>(t->scale_x);
+    double sy = static_cast<double>(t->scale_z);
+    double sz = static_cast<double>(t->scale_y);
+
+    double rx_d = static_cast<double>(t->rot_x_deg) * M_PI / 180.0;
+    double ry_d = static_cast<double>(t->rot_y_deg) * M_PI / 180.0;
+    double rz_d = static_cast<double>(t->rot_z_deg) * M_PI / 180.0;
+
+    double cxr = cos(rx_d), sxr = sin(rx_d);
+    double cyr = cos(ry_d), syr = sin(ry_d);
+    double czr = cos(rz_d), szr = sin(rz_d);
+
+    double stl00 = czr * cyr;
+    double stl10 = syr;
+    double stl20 = szr * cyr;
+    double stl21 = czr * sxr - szr * syr * cxr;
+    double stl22 = szr * syr * sxr + czr * cxr;
+    double stl01 = -(czr * syr * cxr + szr * sxr);
+    double stl11 = cyr * cxr;
+
+    double sin_ey = -stl20;
+    double rx_stl, ry_stl, rz_stl;
+    if (std::abs(sin_ey) < 0.9999) {
+        ry_stl = std::asin(sin_ey);
+        rx_stl = std::atan2(stl21, stl22);
+        rz_stl = std::atan2(stl10, stl00);
+    } else {
+        ry_stl = (sin_ey > 0) ? M_PI / 2.0 : -M_PI / 2.0;
+        rx_stl = std::atan2(-stl01, stl11);
+        rz_stl = 0.0;
+    }
+
+    double min_z = std::numeric_limits<double>::max();
+    Slic3r::BoundingBoxf3 raw_bb = obj->raw_bounding_box();
+    double xs[2] = { raw_bb.min.x() * sx, raw_bb.max.x() * sx };
+    double ys[2] = { raw_bb.min.y() * sy, raw_bb.max.y() * sy };
+    double zs[2] = { raw_bb.min.z() * sz, raw_bb.max.z() * sz };
+    for (int i = 0; i < 2; ++i)
+    for (int j = 0; j < 2; ++j)
+    for (int k = 0; k < 2; ++k) {
+        double wz = stl20 * xs[i] + stl21 * ys[j] + stl22 * zs[k];
+        if (wz < min_z) min_z = wz;
+    }
+    double drop_z = (min_z < std::numeric_limits<double>::max()) ? -min_z : 0.0;
+
+    double inst_x = bed_cx + static_cast<double>(t->pos_x_mm);
+    double inst_y = bed_cy - static_cast<double>(t->pos_z_mm);
+    double inst_z = drop_z;
+
+    for (auto* inst : obj->instances) {
+        inst->set_scaling_factor(Slic3r::Vec3d(sx, sy, sz));
+        inst->set_rotation(Slic3r::Vec3d(rx_stl, ry_stl, rz_stl));
+        inst->set_offset(Slic3r::Vec3d(inst_x, inst_y, inst_z));
+    }
+    return 0;
+}
+
+int slicer_add_stl(SlicerHandle handle, const char* path) {
+    auto ctx = CTX(handle);
+    try {
+        // Load into a temporary model so we don't disturb existing objects.
+        Slic3r::Model temp;
+        bool ok = Slic3r::load_stl(path, &temp, /*object_name=*/nullptr);
+        if (!ok) return set_err(ctx, "load_stl returned false");
+        if (temp.objects.empty()) return set_err(ctx, "STL contains no objects");
+
+        temp.add_default_instances();
+
+        double cx = ctx->origin_at_center ? 0.0 : ctx->bed_x / 2.0;
+        double cy = ctx->origin_at_center ? 0.0 : ctx->bed_y / 2.0;
+
+        int start_idx = static_cast<int>(ctx->model.objects.size());
+
+        for (auto* src : temp.objects) {
+            auto* obj = ctx->model.add_object(*src);
+            obj->center_around_origin();
+            Slic3r::BoundingBoxf3 bb = obj->raw_bounding_box();
+            double shift_z = -bb.min.z();
+            for (auto* inst : obj->instances) {
+                Slic3r::Vec3d off = inst->get_offset();
+                inst->set_offset(Slic3r::Vec3d(cx, cy, off.z() + shift_z));
+            }
+        }
+
+        return start_idx;
+    } catch (const std::exception& e) {
+        return set_err(ctx, e);
+    }
+}
+
+int slicer_set_object_transform(SlicerHandle handle, int object_index,
+                                const SlicerModelTransform* t)
+{
+    auto ctx = CTX(handle);
+    if (!t) return set_err(ctx, "null model transform");
+    int n = static_cast<int>(ctx->model.objects.size());
+    if (object_index < 0 || object_index >= n)
+        return set_err(ctx, "object_index out of range");
+    try {
+        return apply_transform_to_object(ctx, ctx->model.objects[object_index], t);
+    } catch (const std::exception& e) {
+        return set_err(ctx, e);
+    }
+}
+
 } // extern "C"

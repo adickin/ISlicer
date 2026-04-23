@@ -210,6 +210,20 @@ typedef struct {
 int slicer_set_model_transform(SlicerHandle handle,
                                const SlicerModelTransform* t);
 
+// ── Multi-model API ───────────────────────────────────────────────────────────
+
+// Append a new STL object to the slicer model (does not reset existing objects).
+// Returns the object index (≥ 0) on success, or a negative error code.
+// Must be called after slicer_apply_printer_config so bed dimensions are known.
+int slicer_add_stl(SlicerHandle handle, const char* path);
+
+// Apply a viewer transform to the Nth object added via slicer_add_stl.
+// object_index is the value returned by slicer_add_stl.
+// Drops the object to the bed (Z=0) automatically.
+// Returns 0 on success, negative on error.
+int slicer_set_object_transform(SlicerHandle handle, int object_index,
+                                const SlicerModelTransform* t);
+
 #ifdef __cplusplus
 }
 #endif
