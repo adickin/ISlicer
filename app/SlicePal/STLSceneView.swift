@@ -514,25 +514,36 @@ func makePrintBedNode(bedX: Double, bedY: Double) -> SCNNode {
     labelMat.lightingModel = .constant
     labelMat.isDoubleSided = true
 
-    func bedLabel(_ text: String, position: SCNVector3) -> SCNNode {
-        let geo = SCNText(string: text, extrusionDepth: 0)
+    let pad = Float(fontSize) * 1.2
+
+    // X-dimension label: lies flat at front edge, width runs along world X.
+    // SCNText's local origin is at the baseline, so the glyph body extends
+    // toward the bed (local +Y → world −Z); offset by tMax.y to clear the edge.
+    do {
+        let geo = SCNText(string: String(format: "%.0f mm", bedX), extrusionDepth: 0)
         geo.font = UIFont.systemFont(ofSize: fontSize, weight: .medium)
         geo.flatness = 0.1
         geo.materials = [labelMat]
         let (tMin, tMax) = geo.boundingBox
-        let tw = tMax.x - tMin.x
         let node = SCNNode(geometry: geo)
-        node.position = SCNVector3(position.x - tw / 2, position.y, position.z)
-        let bb = SCNBillboardConstraint(); bb.freeAxes = .Y
-        node.constraints = [bb]
-        return node
+        node.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)
+        node.position = SCNVector3(-(tMin.x + tMax.x) / 2, 0, halfZ + pad + tMax.y)
+        root.addChildNode(node)
     }
 
-    let pad = Float(fontSize) * 1.2
-    root.addChildNode(bedLabel(String(format: "%.0f mm", bedX),
-                               position: SCNVector3(0, 0.01, halfZ + pad)))
-    root.addChildNode(bedLabel(String(format: "%.0f mm", bedY),
-                               position: SCNVector3(halfX + pad, 0.01, 0)))
+    // Y-dimension label: lies flat at right edge, width runs along world Z.
+    // After rotation, local +Y → world −X, so offset by tMax.y to clear the edge.
+    do {
+        let geo = SCNText(string: String(format: "%.0f mm", bedY), extrusionDepth: 0)
+        geo.font = UIFont.systemFont(ofSize: fontSize, weight: .medium)
+        geo.flatness = 0.1
+        geo.materials = [labelMat]
+        let (tMin, tMax) = geo.boundingBox
+        let node = SCNNode(geometry: geo)
+        node.eulerAngles = SCNVector3(-Float.pi / 2, Float.pi / 2, 0)
+        node.position = SCNVector3(halfX + pad + tMax.y, 0, (tMin.x + tMax.x) / 2)
+        root.addChildNode(node)
+    }
 
     return root
 }
