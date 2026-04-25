@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct SlicePalApp: App {
+struct PalmSliceApp: App {
     @StateObject private var profileStore = ProfileStore()
     @StateObject private var sliceProfileStore = SliceProfileStore()
     @StateObject private var materialProfileStore = MaterialProfileStore()

@@ -1,6 +1,6 @@
-# xcodegen project spec for SlicePal
+# xcodegen project spec for PalmSlice
 # Generate with: cd app && xcodegen
-# Then open:     open SlicePal.xcodeproj
+# Then open:     open PalmSlice.xcodeproj
 #
 # Prerequisites:
 #   • Run build.sh (or at least up through 11_xcframework.sh) so that
@@ -33,7 +33,7 @@ targets:
 
     # ── Source files ────────────────────────────────────────────
     sources:
-      - path: SlicePal
+      - path: PalmSlice
         excludes:
           - "**/.DS_Store"
 
@@ -50,7 +50,7 @@ targets:
     settings:
       base:
         # Bridging header — Swift ↔ C bridge
-        SWIFT_OBJC_BRIDGING_HEADER: SlicePal/SlicePal-Bridging-Header.h
+        SWIFT_OBJC_BRIDGING_HEADER: PalmSlice/PalmSlice-Bridging-Header.h
 
         # C++ standard (must match how libslic3r was compiled)
         CLANG_CXX_LANGUAGE_STANDARD: c++17
@@ -145,7 +145,7 @@ targets:
 
     # ── Info.plist ──────────────────────────────────────────────
     info:
-      path: SlicePal/Info.plist
+      path: PalmSlice/Info.plist
       properties:
         CFBundleDisplayName: PalmSlice
         CFBundleShortVersionString: "1.0"
