@@ -39,10 +39,11 @@ struct ModelTransform: Equatable {
         }.min() ?? 0
     }
 
-    /// Copy of this transform with positionMM.y adjusted so the model bottom sits exactly on Y=0.
+    /// Copy of this transform with positionMM.z adjusted so the model bottom sits exactly on the bed.
+    /// positionMM.z is print Z (the vertical axis); maps to SceneKit Y via the pivot position.
     func droppedToBed(meshInfo: STLMeshInfo) -> ModelTransform {
         var t = self
-        t.positionMM.y = -minWorldY(meshInfo: meshInfo) * 100
+        t.positionMM.z = -minWorldY(meshInfo: meshInfo) * 100
         return t
     }
 }

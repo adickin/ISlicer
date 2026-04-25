@@ -82,8 +82,8 @@ struct TransformPanelView: View {
             .onChange(of: transform.rotationDeg) { _ in
                 guard let info = meshInfo else { return }
                 let dropped = transform.droppedToBed(meshInfo: info)
-                if dropped.positionMM.y != transform.positionMM.y {
-                    transform.positionMM.y = dropped.positionMM.y
+                if dropped.positionMM.z != transform.positionMM.z {
+                    transform.positionMM.z = dropped.positionMM.z
                 }
             }
         }

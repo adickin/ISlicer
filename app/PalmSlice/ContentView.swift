@@ -218,7 +218,7 @@ struct ContentView: View {
         // ZStack lets left and right columns each anchor independently from the
         // top so the model list doesn't push the gizmo buttons down.
         ZStack(alignment: .top) {
-            // LEFT column: model list, then transform bar below it
+            // LEFT column: model list, then transform bar spanning to gizmo column
             VStack(alignment: .leading, spacing: 8) {
                 if !showLayerPreview {
                     ModelListView(
@@ -231,14 +231,15 @@ struct ContentView: View {
                 if !showLayerPreview && selectedModelID != nil && selectedModel != nil {
                     transformBarContent
                         .padding(.leading, 16)
+                        .padding(.trailing, 72)
                 }
                 Spacer()
             }
             .padding(.top, 60)
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            // RIGHT column: gizmo & viewer buttons — always anchored at top-right
-            VStack(alignment: .trailing) {
+            // RIGHT column: gizmo & viewer buttons
+            VStack(alignment: .trailing, spacing: 8) {
                 VStack(spacing: 10) {
                     if !showLayerPreview && hasModels {
                         overlayButton(
@@ -276,6 +277,7 @@ struct ContentView: View {
                     }
                 }
                 .padding(.trailing, 16)
+
                 Spacer()
             }
             .padding(.top, 60)
@@ -292,7 +294,7 @@ struct ContentView: View {
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(.secondary)
 
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 axisField("X", color: .red,   binding: currentXBinding)
                 axisField("Y", color: .green, binding: currentYBinding)
                 axisField("Z", color: .blue,  binding: currentZBinding)
@@ -301,7 +303,8 @@ struct ContentView: View {
                 }
             }
 
-            if gizmoMode == .scale {
+            switch gizmoMode {
+            case .scale:
                 HStack(spacing: 6) {
                     Toggle("", isOn: $lockScale)
                         .toggleStyle(.switch)
@@ -315,13 +318,15 @@ struct ContentView: View {
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
-            }
-
-            if let info = selectedModel?.meshInfo, let t = selectedModel?.transform {
-                Divider()
-                dimensionRows(info: info, transform: t)
+            case .translate:
+                Button("Drop to Bed") { dropToBed() }
+                    .buttonStyle(.bordered).controlSize(.mini)
+            case .rotate:
+                Button("Reset") { writeTransform { $0.rotationDeg = .zero } }
+                    .buttonStyle(.bordered).controlSize(.mini)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
@@ -333,7 +338,7 @@ struct ContentView: View {
             Circle().fill(color).frame(width: 5, height: 5)
             FloatField(value: binding, fmt: "%.2f")
                 .font(.caption.monospacedDigit())
-                .frame(width: 52)
+                .frame(width: 42)
         }
     }
 
@@ -407,6 +412,48 @@ struct ContentView: View {
     private func writeTransform(_ mutation: (inout ModelTransform) -> Void) {
         guard let idx = selectedIndex else { return }
         mutation(&models[idx].transform)
+        checkIntersections(models: &models)
+    }
+
+    private func centerOnBed() {
+        writeTransform { $0.positionMM.x = 0; $0.positionMM.z = 0 }
+    }
+
+    private func dropToBed() {
+        guard let idx = selectedIndex else { return }
+        if let info = selectedModel?.meshInfo {
+            models[idx].transform = models[idx].transform.droppedToBed(meshInfo: info)
+        } else {
+            models[idx].transform.positionMM.y = 0
+        }
+        checkIntersections(models: &models)
+    }
+
+    private func layFlatInline() {
+        guard let info = selectedModel?.meshInfo, let idx = selectedIndex else { return }
+
+        var bestScore: Float = -.infinity
+        var bestNormal = SIMD3<Float>(0, 0, -1)
+        for face in info.faces {
+            let score = -face.normal.z * face.area
+            if score > bestScore { bestScore = score; bestNormal = face.normal }
+        }
+
+        let scNormal = simd_normalize(SIMD3<Float>(bestNormal.x, bestNormal.z, -bestNormal.y))
+        let target   = SIMD3<Float>(0, -1, 0)
+        let dot      = max(-1, min(1, simd_dot(scNormal, target)))
+
+        if dot > 0.9999 {
+            models[idx].transform.rotationDeg = .zero
+        } else {
+            let rotQuat: simd_quatf = dot < -0.9999
+                ? simd_quaternion(Float.pi, SIMD3<Float>(1, 0, 0))
+                : simd_quaternion(acos(dot), simd_normalize(simd_cross(scNormal, target)))
+            let node = SCNNode()
+            node.simdOrientation = rotQuat
+            models[idx].transform.rotationDeg = node.simdEulerAngles * (180 / .pi)
+        }
+        models[idx].transform = models[idx].transform.droppedToBed(meshInfo: info)
         checkIntersections(models: &models)
     }
 
