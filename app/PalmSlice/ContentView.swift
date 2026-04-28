@@ -47,6 +47,12 @@ struct ContentView: View {
     @State private var gizmoMode: GizmoMode = .translate
     @State private var lockScale = true
 
+    // Camera — persists so toggling layer preview doesn't reset it
+    @State private var cameraHasBeenSet = false
+
+    // Export filename
+    @State private var exportFileName: String = ""
+
     // Viewer controls
     @State private var showWireframe: Bool = false
     @State private var viewerColorMode: ViewerColorMode = .solid
@@ -77,6 +83,10 @@ struct ContentView: View {
     private var hasModels: Bool { !models.isEmpty }
     private var anyIntersecting: Bool { models.contains { $0.isIntersecting } }
 
+    private var bedXVal: Double { profileStore.selectedProfile?.bedX ?? 220 }
+    private var bedYVal: Double { profileStore.selectedProfile?.bedY ?? 220 }
+    private var bedZVal: Double { profileStore.selectedProfile?.bedZ ?? 250 }
+
     // Transform binding for the selected model — used by the transform panel and bar.
     private var selectedTransformBinding: Binding<ModelTransform> {
         Binding(
@@ -84,7 +94,7 @@ struct ContentView: View {
             set: { newVal in
                 if let idx = self.selectedIndex {
                     self.models[idx].transform = newVal
-                    checkIntersections(models: &self.models)
+                    checkIntersections(models: &self.models, bedX: self.bedXVal, bedY: self.bedYVal)
                 }
             }
         )
@@ -97,26 +107,33 @@ struct ContentView: View {
                     GCodeSceneView(
                         layers: parsedLayers,
                         currentLayerIndex: currentLayerIndex,
-                        bedX: profileStore.selectedProfile?.bedX ?? 220,
-                        bedY: profileStore.selectedProfile?.bedY ?? 220
+                        bedX: bedXVal,
+                        bedY: bedYVal
                     )
                 } else {
                     STLSceneView(
                         models: models,
                         selectedModelID: selectedModelID,
-                        bedX: profileStore.selectedProfile?.bedX ?? 220,
-                        bedY: profileStore.selectedProfile?.bedY ?? 220,
+                        bedX: bedXVal,
+                        bedY: bedYVal,
+                        bedZ: bedZVal,
                         showWireframe: showWireframe,
                         gizmoMode: gizmoMode,
                         lockScale: lockScale,
+                        didSetCamera: cameraHasBeenSet,
                         onTransformChange: { id, newTransform in
                             if let idx = models.firstIndex(where: { $0.id == id }) {
                                 models[idx].transform = newTransform
-                                checkIntersections(models: &models)
                             }
                         },
                         onSelectionChange: { id in
                             selectedModelID = id
+                        },
+                        onDragEnded: {
+                            checkIntersections(models: &models, bedX: bedXVal, bedY: bedYVal)
+                        },
+                        onCameraSet: {
+                            cameraHasBeenSet = true
                         }
                     )
                     .overlay {
@@ -169,18 +186,18 @@ struct ContentView: View {
                 TransformPanelView(
                     transform: selectedTransformBinding,
                     meshInfo: info,
-                    bedX: profileStore.selectedProfile?.bedX ?? 220,
-                    bedY: profileStore.selectedProfile?.bedY ?? 220,
-                    bedZ: profileStore.selectedProfile?.bedZ ?? 250,
+                    bedX: bedXVal,
+                    bedY: bedYVal,
+                    bedZ: bedZVal,
                     lockScale: $lockScale
                 )
             } else {
                 TransformPanelView(
                     transform: selectedTransformBinding,
                     meshInfo: nil,
-                    bedX: profileStore.selectedProfile?.bedX ?? 220,
-                    bedY: profileStore.selectedProfile?.bedY ?? 220,
-                    bedZ: profileStore.selectedProfile?.bedZ ?? 250,
+                    bedX: bedXVal,
+                    bedY: bedYVal,
+                    bedZ: bedZVal,
                     lockScale: $lockScale
                 )
             }
@@ -412,7 +429,7 @@ struct ContentView: View {
     private func writeTransform(_ mutation: (inout ModelTransform) -> Void) {
         guard let idx = selectedIndex else { return }
         mutation(&models[idx].transform)
-        checkIntersections(models: &models)
+        checkIntersections(models: &models, bedX: bedXVal, bedY: bedYVal)
     }
 
     private func centerOnBed() {
@@ -426,7 +443,7 @@ struct ContentView: View {
         } else {
             models[idx].transform.positionMM.y = 0
         }
-        checkIntersections(models: &models)
+        checkIntersections(models: &models, bedX: bedXVal, bedY: bedYVal)
     }
 
     private func layFlatInline() {
@@ -454,7 +471,7 @@ struct ContentView: View {
             models[idx].transform.rotationDeg = node.simdEulerAngles * (180 / .pi)
         }
         models[idx].transform = models[idx].transform.droppedToBed(meshInfo: info)
-        checkIntersections(models: &models)
+        checkIntersections(models: &models, bedX: bedXVal, bedY: bedYVal)
     }
 
     private var scaleXBinding: Binding<Float> {
@@ -468,7 +485,7 @@ struct ContentView: View {
             } else {
                 self.models[idx].transform.scale.x = v
             }
-            checkIntersections(models: &self.models)
+            checkIntersections(models: &self.models, bedX: self.bedXVal, bedY: self.bedYVal)
         }
     }
     private var scaleYBinding: Binding<Float> {
@@ -482,7 +499,7 @@ struct ContentView: View {
             } else {
                 self.models[idx].transform.scale.y = v
             }
-            checkIntersections(models: &self.models)
+            checkIntersections(models: &self.models, bedX: self.bedXVal, bedY: self.bedYVal)
         }
     }
     private var scaleZBinding: Binding<Float> {
@@ -496,7 +513,7 @@ struct ContentView: View {
             } else {
                 self.models[idx].transform.scale.z = v
             }
-            checkIntersections(models: &self.models)
+            checkIntersections(models: &self.models, bedX: self.bedXVal, bedY: self.bedYVal)
         }
     }
 
@@ -661,6 +678,18 @@ struct ContentView: View {
                     .disabled(isBusy)
                 }
 
+                // Export filename field
+                HStack(spacing: 8) {
+                    Image(systemName: "doc.badge.gearshape")
+                        .foregroundStyle(.secondary)
+                        .font(.subheadline)
+                    TextField("Output filename (auto)", text: $exportFileName)
+                        .font(.subheadline)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                        .disabled(isBusy)
+                }
+
                 Divider()
 
                 // Printer profile row
@@ -809,12 +838,18 @@ struct ContentView: View {
             }
             try FileManager.default.copyItem(at: url, to: dest)
 
+            // Offset each additional model along X so they don't land exactly on top of
+            // each other in the slicer (which can crash libslic3r with coincident objects).
+            var initialTransform = ModelTransform()
+            if !models.isEmpty {
+                initialTransform.positionMM.x = Float(models.count) * 50
+            }
             let newModel = PlacedModel(
                 id: id,
                 url: dest,
                 name: url.lastPathComponent,
                 geometry: nil,
-                transform: .identity
+                transform: initialTransform
             )
             models.append(newModel)
             selectedModelID = id
@@ -832,7 +867,7 @@ struct ContentView: View {
                     if let idx = models.firstIndex(where: { $0.id == id }) {
                         models[idx].geometry = geo
                         models[idx].meshInfo = info
-                        checkIntersections(models: &models)
+                        checkIntersections(models: &models, bedX: bedXVal, bedY: bedYVal)
                     }
                     isParsingSTL = false
                 }
@@ -881,9 +916,15 @@ struct ContentView: View {
 
         // 3. Output path in Documents
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let stem = snapshotModels.count == 1
-            ? URL(fileURLWithPath: snapshotModels[0].url.path).deletingPathExtension().lastPathComponent
-            : "multimodel_\(snapshotModels.count)"
+        let customName = await MainActor.run(body: { exportFileName.trimmingCharacters(in: .whitespaces) })
+        let stem: String
+        if !customName.isEmpty {
+            stem = customName.hasSuffix(".gcode") ? String(customName.dropLast(6)) : customName
+        } else if snapshotModels.count == 1 {
+            stem = URL(fileURLWithPath: snapshotModels[0].url.path).deletingPathExtension().lastPathComponent
+        } else {
+            stem = "multimodel_\(snapshotModels.count)"
+        }
         let outName = String(format: "%@_%.2fmm_%d.gcode",
                              stem, sliceProfile.layerHeight, sliceProfile.infillDensity)
         let gcodeURL = docs.appendingPathComponent(outName)
@@ -938,13 +979,18 @@ struct ContentView: View {
 
             var mt = SlicerModelTransform()
             mt.pos_x_mm  = model.transform.positionMM.x
-            mt.pos_z_mm  = model.transform.positionMM.z
+            // positionMM.y = print Y (bed depth) = SceneKit Z → pos_z_mm
+            mt.pos_z_mm  = model.transform.positionMM.y
             mt.rot_x_deg = model.transform.rotationDeg.x
-            mt.rot_y_deg = model.transform.rotationDeg.y
-            mt.rot_z_deg = model.transform.rotationDeg.z
+            // Pivot eulerAngles = (rx, rz, ry) so SceneKit Euler Y = rotationDeg.z
+            mt.rot_y_deg = model.transform.rotationDeg.z
+            // SceneKit Euler Z = rotationDeg.y
+            mt.rot_z_deg = model.transform.rotationDeg.y
             mt.scale_x   = model.transform.scale.x
-            mt.scale_y   = model.transform.scale.y
-            mt.scale_z   = model.transform.scale.z
+            // Pivot scale = (sx, sz, sy) so SceneKit Y scale = scale.z
+            mt.scale_y   = model.transform.scale.z
+            // SceneKit Z scale = scale.y
+            mt.scale_z   = model.transform.scale.y
             if slicer_set_object_transform(handle, objIdx, &mt) != 0 {
                 let msg = String(cString: slicer_last_error(handle))
                 await MainActor.run { state = .failed(message: msg) ; showErrorAlert = true }

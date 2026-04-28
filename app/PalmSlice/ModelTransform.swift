@@ -28,14 +28,15 @@ struct ModelTransform: Equatable {
         ]
 
         let s = scale
-        // SceneKit applies Euler in Z→Y→X order
+        // Pivot eulerAngles = (rx, rz, ry) in SceneKit ZYX order → Rx(rx)*Ry(rz)*Rz(ry)
         let r = rotationDeg * (.pi / 180)
         let q = simd_quaternion(r.x, SIMD3<Float>(1,0,0))
-              * simd_quaternion(r.y, SIMD3<Float>(0,1,0))
-              * simd_quaternion(r.z, SIMD3<Float>(0,0,1))
+              * simd_quaternion(r.z, SIMD3<Float>(0,1,0))
+              * simd_quaternion(r.y, SIMD3<Float>(0,0,1))
 
+        // Pivot scale = (scale.x, scale.z, scale.y): SceneKit Y scale = scale.z, Z scale = scale.y
         return corners.map { c in
-            simd_act(q, SIMD3(c.x * s.x, c.y * s.y, c.z * s.z)).y
+            simd_act(q, SIMD3(c.x * s.x, c.y * s.z, c.z * s.y)).y
         }.min() ?? 0
     }
 

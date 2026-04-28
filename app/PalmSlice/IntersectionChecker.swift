@@ -1,13 +1,26 @@
 import simd
 
 // Recomputes isIntersecting on every model in-place using world-space AABB pairs.
-func checkIntersections(models: inout [PlacedModel]) {
+// Also marks models that extend outside the bed XY footprint.
+func checkIntersections(models: inout [PlacedModel], bedX: Double = 220, bedY: Double = 220) {
     for i in models.indices { models[i].isIntersecting = false }
 
     let aabbs: [(min: SIMD3<Float>, max: SIMD3<Float>)?] = models.map(worldAABB(model:))
 
+    // Bed half-extents in SceneKit units (bed Y depth maps to SceneKit Z).
+    let bedHX = Float(bedX) / 200
+    let bedHZ = Float(bedY) / 200
+
     for i in models.indices {
         guard let a = aabbs[i] else { continue }
+
+        // Out-of-bed check (XZ plane only; height is unlimited).
+        if a.min.x < -bedHX || a.max.x > bedHX ||
+           a.min.z < -bedHZ || a.max.z > bedHZ {
+            models[i].isIntersecting = true
+        }
+
+        // Model-model overlap check.
         for j in (i + 1)..<models.count {
             guard let b = aabbs[j] else { continue }
             if aabbsOverlap(a, b) {
@@ -41,20 +54,22 @@ private func worldAABB(model: PlacedModel) -> (min: SIMD3<Float>, max: SIMD3<Flo
 
     let s = t.scale
     let r = t.rotationDeg * (.pi / 180)
-    // SceneKit applies Euler in Z→Y→X order (right-multiply = outermost first)
+    // Pivot eulerAngles = (rx, rz, ry) in SceneKit ZYX order → Rx(rx)*Ry(rz)*Rz(ry)
     let q = simd_quaternion(r.x, SIMD3<Float>(1, 0, 0))
-          * simd_quaternion(r.y, SIMD3<Float>(0, 1, 0))
-          * simd_quaternion(r.z, SIMD3<Float>(0, 0, 1))
+          * simd_quaternion(r.z, SIMD3<Float>(0, 1, 0))
+          * simd_quaternion(r.y, SIMD3<Float>(0, 0, 1))
 
+    // Pivot scale = (scale.x, scale.z, scale.y): SceneKit Y scale = scale.z, Z scale = scale.y
     var minV = SIMD3<Float>(repeating: .infinity)
     var maxV = SIMD3<Float>(repeating: -.infinity)
     for c in corners {
-        let p = simd_act(q, SIMD3(c.x * s.x, c.y * s.y, c.z * s.z))
+        let p = simd_act(q, SIMD3(c.x * s.x, c.y * s.z, c.z * s.y))
         minV = simd_min(minV, p)
         maxV = simd_max(maxV, p)
     }
 
-    let pos = t.positionMM / 100
+    // Pivot position = (posX/100, posZ/100, posY/100) in SceneKit XYZ
+    let pos = SIMD3<Float>(t.positionMM.x / 100, t.positionMM.z / 100, t.positionMM.y / 100)
     return (minV + pos, maxV + pos)
 }
 

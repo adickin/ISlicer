@@ -21,11 +21,15 @@ struct STLSceneView: UIViewRepresentable {
     var selectedModelID: UUID?
     var bedX: Double = 220
     var bedY: Double = 220
+    var bedZ: Double = 250
     var showWireframe: Bool = false
     var gizmoMode: GizmoMode = .translate
     var lockScale: Bool = true
+    var didSetCamera: Bool = false
     var onTransformChange: ((UUID, ModelTransform) -> Void)? = nil
     var onSelectionChange: ((UUID?) -> Void)? = nil
+    var onDragEnded: (() -> Void)? = nil
+    var onCameraSet: (() -> Void)? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -44,7 +48,7 @@ struct STLSceneView: UIViewRepresentable {
         let scene = SCNScene()
         scnView.scene = scene
 
-        let bedNode = makePrintBedNode(bedX: bedX, bedY: bedY)
+        let bedNode = makePrintBedNode(bedX: bedX, bedY: bedY, bedZ: bedZ)
         bedNode.name = "printBed"
         scene.rootNode.addChildNode(bedNode)
 
@@ -122,17 +126,21 @@ struct STLSceneView: UIViewRepresentable {
         let coord = context.coordinator
         coord.onTransformChange = onTransformChange
         coord.onSelectionChange = onSelectionChange
+        coord.onDragEnded       = onDragEnded
+        coord.onCameraSet       = onCameraSet
+        coord.didSetCamera      = didSetCamera
         coord.lockScale         = lockScale
 
         // 1. Rebuild bed/axes on dimension change.
-        if coord.lastBedX != bedX || coord.lastBedY != bedY, let scene = scnView.scene {
+        if coord.lastBedX != bedX || coord.lastBedY != bedY || coord.lastBedZ != bedZ,
+           let scene = scnView.scene {
             scene.rootNode.childNode(withName: "printBed", recursively: false)?.removeFromParentNode()
             scene.rootNode.childNode(withName: "axes",     recursively: false)?.removeFromParentNode()
-            let b = makePrintBedNode(bedX: bedX, bedY: bedY); b.name = "printBed"
+            let b = makePrintBedNode(bedX: bedX, bedY: bedY, bedZ: bedZ); b.name = "printBed"
             scene.rootNode.addChildNode(b)
             let a = makeAxesNode(bedX: bedX, bedY: bedY); a.name = "axes"
             scene.rootNode.addChildNode(a)
-            coord.lastBedX = bedX; coord.lastBedY = bedY
+            coord.lastBedX = bedX; coord.lastBedY = bedY; coord.lastBedZ = bedZ
         }
 
         // 2. Gizmo mode change.
@@ -203,8 +211,9 @@ struct STLSceneView: UIViewRepresentable {
                     entry.pivot.addChildNode(bbox)
                     entry.bboxNode = bbox
 
-                    // Reset camera only for the first model loaded in a fresh scene.
-                    if coord.lastCameraModelID == nil, let cam = coord.cameraNode {
+                    // Reset camera for the first model ever loaded — but only once per
+                    // ContentView session (didSetCamera persists across view recreations).
+                    if !coord.didSetCamera, coord.lastCameraModelID == nil, let cam = coord.cameraNode {
                         coord.lastCameraModelID = model.id
                         let modelH = maxB.z - minB.z
                         let maxExt = max(maxB.x - minB.x, maxB.y - minB.y, modelH)
@@ -215,6 +224,7 @@ struct STLSceneView: UIViewRepresentable {
                         cam.look(at: lookAt)
                         scnView.pointOfView = cam
                         scnView.defaultCameraController.target = lookAt
+                        coord.onCameraSet?()
                     }
                 }
 
@@ -485,9 +495,10 @@ private func makeScaleGizmo() -> SCNNode {
 
 // MARK: - Print bed grid
 
-func makePrintBedNode(bedX: Double, bedY: Double) -> SCNNode {
+func makePrintBedNode(bedX: Double, bedY: Double, bedZ: Double = 250) -> SCNNode {
     let scaleX = Float(bedX) / 100, scaleZ = Float(bedY) / 100
     let halfX = scaleX / 2,         halfZ = scaleZ / 2
+    let h = Float(bedZ) / 100
     let divX = max(Int(bedX / 10), 1), divZ = max(Int(bedY / 10), 1)
     let stepX = scaleX / Float(divX), stepZ = scaleZ / Float(divZ)
 
@@ -502,6 +513,20 @@ func makePrintBedNode(bedX: Double, bedY: Double) -> SCNNode {
         verts += [SCNVector3(x,0,-halfZ), SCNVector3(x,0,halfZ)]
         idx += [i32, i32+1]; i32 += 2
     }
+    // Four vertical corner pillars to show build volume height.
+    let corners: [(Float, Float)] = [(-halfX,-halfZ),(halfX,-halfZ),(halfX,halfZ),(-halfX,halfZ)]
+    for (cx, cz) in corners {
+        verts += [SCNVector3(cx,0,cz), SCNVector3(cx,h,cz)]
+        idx += [i32, i32+1]; i32 += 2
+    }
+    // Top rectangle outline.
+    let topCorners: [SCNVector3] = corners.map { SCNVector3($0.0, h, $0.1) }
+    for i in 0..<4 {
+        let j = (i + 1) % 4
+        verts += [topCorners[i], topCorners[j]]
+        idx += [i32, i32+1]; i32 += 2
+    }
+
     let geo = SCNGeometry(sources: [SCNGeometrySource(vertices: verts)],
                           elements: [SCNGeometryElement(indices: idx, primitiveType: .line)])
     let mat = SCNMaterial(); mat.diffuse.contents = UIColor(white: 0.38, alpha: 1); mat.lightingModel = .constant
@@ -602,6 +627,7 @@ final class Coordinator: NSObject, UIGestureRecognizerDelegate {
     var lockScale:          Bool = true
     var lastBedX:           Double = 0
     var lastBedY:           Double = 0
+    var lastBedZ:           Double = 0
     var lastShowWireframe:  Bool = false
 
     // MARK: Drag state
@@ -615,6 +641,9 @@ final class Coordinator: NSObject, UIGestureRecognizerDelegate {
     // MARK: Callbacks
     var onTransformChange: ((UUID, ModelTransform) -> Void)? = nil
     var onSelectionChange: ((UUID?) -> Void)? = nil
+    var onDragEnded:       (() -> Void)? = nil
+    var onCameraSet:       (() -> Void)? = nil
+    var didSetCamera:      Bool = false
 
     // MARK: Gizmo visibility
 
@@ -732,6 +761,7 @@ final class Coordinator: NSObject, UIGestureRecognizerDelegate {
             lastPanLocation = nil
             scnView.allowsCameraControl = true
             restoreGizmoAxisHighlight()
+            onDragEnded?()
 
         default: break
         }
