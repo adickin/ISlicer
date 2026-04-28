@@ -667,9 +667,19 @@ final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),
                                         to: nil, from: nil, for: nil)
         let hits = scnView.hitTest(tap.location(in: scnView), options: nil)
-        let hit  = hits.first?.node
+        // Skip bed/axes geometry — their line primitives can intercept taps.
+        let hit = hits.first(where: { !isSceneFixtureNode($0.node) })?.node
         if gizmoNodeInfo(hit) != nil { return }
         setSelected(id: modelID(for: hit))
+    }
+
+    private func isSceneFixtureNode(_ node: SCNNode?) -> Bool {
+        var n = node
+        while let cur = n {
+            if cur.name == "printBed" || cur.name == "axes" { return true }
+            n = cur.parent
+        }
+        return false
     }
 
     private func setSelected(id: UUID?) {
