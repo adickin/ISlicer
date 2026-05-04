@@ -1,29 +1,29 @@
 import simd
 
-// Recomputes isIntersecting on every model in-place using world-space AABB pairs.
+// Recomputes isIntersecting on every model in-place using world-space OBB pairs (SAT).
 // Also marks models that extend outside the bed XY footprint.
 func checkIntersections(models: inout [PlacedModel], bedX: Double = 220, bedY: Double = 220) {
     for i in models.indices { models[i].isIntersecting = false }
 
-    let aabbs: [(min: SIMD3<Float>, max: SIMD3<Float>)?] = models.map(worldAABB(model:))
+    let obbs: [OBB?] = models.map(computeOBB(model:))
 
     // Bed half-extents in SceneKit units (bed Y depth maps to SceneKit Z).
     let bedHX = Float(bedX) / 200
     let bedHZ = Float(bedY) / 200
 
     for i in models.indices {
-        guard let a = aabbs[i] else { continue }
+        guard let a = obbs[i] else { continue }
 
-        // Out-of-bed check (XZ plane only; height is unlimited).
-        if a.min.x < -bedHX || a.max.x > bedHX ||
-           a.min.z < -bedHZ || a.max.z > bedHZ {
+        // Out-of-bed check: project OBB corners into XZ and compare to bed footprint.
+        let (minX, maxX, minZ, maxZ) = obbXZExtents(a)
+        if minX < -bedHX || maxX > bedHX || minZ < -bedHZ || maxZ > bedHZ {
             models[i].isIntersecting = true
         }
 
-        // Model-model overlap check.
+        // Model-model overlap check using OBB-OBB SAT.
         for j in (i + 1)..<models.count {
-            guard let b = aabbs[j] else { continue }
-            if aabbsOverlap(a, b) {
+            guard let b = obbs[j] else { continue }
+            if obbsOverlap(a, b) {
                 models[i].isIntersecting = true
                 models[j].isIntersecting = true
             }
@@ -31,53 +31,97 @@ func checkIntersections(models: inout [PlacedModel], bedX: Double = 220, bedY: D
     }
 }
 
-// Computes the world-space AABB for a model in SceneKit units, matching the
-// coordinate system used by STLSceneView (pivot transform + mesh –90° X rotation).
-private func worldAABB(model: PlacedModel) -> (min: SIMD3<Float>, max: SIMD3<Float>)? {
+// MARK: - OBB
+
+private struct OBB {
+    let center: SIMD3<Float>
+    let he: SIMD3<Float>                                           // half-extents along each local axis
+    let axes: (SIMD3<Float>, SIMD3<Float>, SIMD3<Float>)          // local X, Y, Z unit vectors in world space
+}
+
+private func computeOBB(model: PlacedModel) -> OBB? {
     guard let info = model.meshInfo else { return nil }
     let t = model.transform
-
-    // Local extents in SceneKit units (mirrors ModelTransform.minWorldY corners):
-    //   X: ±sizeMMX/200   (width half-extent)
-    //   Y:  0 … sizeMMZ/100  (height, bottom on bed)
-    //   Z: ±sizeMMY/200   (depth half-extent)
-    let hx: Float = info.sizeMMX / 200
-    let hy: Float = info.sizeMMZ / 100
-    let hz: Float = info.sizeMMY / 200
-
-    let corners: [SIMD3<Float>] = [
-        SIMD3(-hx, 0,  -hz), SIMD3(hx, 0,  -hz),
-        SIMD3(-hx, hy, -hz), SIMD3(hx, hy, -hz),
-        SIMD3(-hx, 0,   hz), SIMD3(hx, 0,   hz),
-        SIMD3(-hx, hy,  hz), SIMD3(hx, hy,  hz),
-    ]
-
     let s = t.scale
+
+    // OBB half-extents in the pivot's local frame (before rotation), after scale.
+    // Pivot scale remapping: SceneKit X←s.x, SceneKit Y←s.z, SceneKit Z←s.y
+    let heX: Float = (info.sizeMMX / 200) * s.x
+    let heY: Float = (info.sizeMMZ / 200) * s.z   // half of full height (sizeMMZ/100 / 2)
+    let heZ: Float = (info.sizeMMY / 200) * s.y
+
     let r = t.rotationDeg * (.pi / 180)
-    // Pivot eulerAngles = (rx, rz, ry) in SceneKit ZYX order → Rx(rx)*Ry(rz)*Rz(ry)
+    // SceneKit ZYX Euler order: Rx(r.x) * Ry(r.z) * Rz(r.y)
     let q = simd_quaternion(r.x, SIMD3<Float>(1, 0, 0))
           * simd_quaternion(r.z, SIMD3<Float>(0, 1, 0))
           * simd_quaternion(r.y, SIMD3<Float>(0, 0, 1))
 
-    // Pivot scale = (scale.x, scale.z, scale.y): SceneKit Y scale = scale.z, Z scale = scale.y
-    var minV = SIMD3<Float>(repeating: .infinity)
-    var maxV = SIMD3<Float>(repeating: -.infinity)
-    for c in corners {
-        let p = simd_act(q, SIMD3(c.x * s.x, c.y * s.z, c.z * s.y))
-        minV = simd_min(minV, p)
-        maxV = simd_max(maxV, p)
-    }
+    let axX = simd_act(q, SIMD3<Float>(1, 0, 0))
+    let axY = simd_act(q, SIMD3<Float>(0, 1, 0))
+    let axZ = simd_act(q, SIMD3<Float>(0, 0, 1))
 
-    // Pivot position = (posX/100, posZ/100, posY/100) in SceneKit XYZ
-    let pos = SIMD3<Float>(t.positionMM.x / 100, t.positionMM.z / 100, t.positionMM.y / 100)
-    return (minV + pos, maxV + pos)
+    // Center of the unscaled box in pivot local space is (0, heY_unscaled, 0).
+    // After scale it becomes (0, heY, 0) — same axis, just scaled value.
+    let pivotPos = SIMD3<Float>(t.positionMM.x / 100, t.positionMM.z / 100, t.positionMM.y / 100)
+    let center   = simd_act(q, SIMD3<Float>(0, heY, 0)) + pivotPos
+
+    return OBB(center: center, he: SIMD3(heX, heY, heZ), axes: (axX, axY, axZ))
 }
 
-private func aabbsOverlap(
-    _ a: (min: SIMD3<Float>, max: SIMD3<Float>),
-    _ b: (min: SIMD3<Float>, max: SIMD3<Float>)
-) -> Bool {
-    a.min.x <= b.max.x && a.max.x >= b.min.x &&
-    a.min.y <= b.max.y && a.max.y >= b.min.y &&
-    a.min.z <= b.max.z && a.max.z >= b.min.z
+// MARK: - OBB-OBB SAT
+
+private func obbsOverlap(_ a: OBB, _ b: OBB) -> Bool {
+    let T = b.center - a.center
+    let aAxes = [a.axes.0, a.axes.1, a.axes.2]
+    let bAxes = [b.axes.0, b.axes.1, b.axes.2]
+
+    // Returns true when the given axis L separates the two OBBs.
+    // Works with unnormalized axes — scaling both sides by |L| preserves the inequality.
+    func separates(_ L: SIMD3<Float>) -> Bool {
+        let t = abs(simd_dot(T, L))
+        let rA = a.he.x * abs(simd_dot(aAxes[0], L))
+               + a.he.y * abs(simd_dot(aAxes[1], L))
+               + a.he.z * abs(simd_dot(aAxes[2], L))
+        let rB = b.he.x * abs(simd_dot(bAxes[0], L))
+               + b.he.y * abs(simd_dot(bAxes[1], L))
+               + b.he.z * abs(simd_dot(bAxes[2], L))
+        return t > rA + rB
+    }
+
+    // Test 6 face-normal axes (A's and B's local axes).
+    for ax in aAxes { if separates(ax) { return false } }
+    for bx in bAxes { if separates(bx) { return false } }
+
+    // Test 9 edge cross-product axes.
+    for ax in aAxes {
+        for bx in bAxes {
+            let L = simd_cross(ax, bx)
+            // Skip near-degenerate axes (parallel source edges); already covered above.
+            if simd_length_squared(L) < 1e-6 { continue }
+            if separates(L) { return false }
+        }
+    }
+
+    return true
+}
+
+// MARK: - Bed footprint helper
+
+private func obbXZExtents(_ obb: OBB) -> (minX: Float, maxX: Float, minZ: Float, maxZ: Float) {
+    var minX: Float =  .infinity, maxX: Float = -.infinity
+    var minZ: Float =  .infinity, maxZ: Float = -.infinity
+    let signs: [Float] = [-1, 1]
+    for sx in signs {
+        for sy in signs {
+            for sz in signs {
+                let corner = obb.center
+                           + obb.axes.0 * (obb.he.x * sx)
+                           + obb.axes.1 * (obb.he.y * sy)
+                           + obb.axes.2 * (obb.he.z * sz)
+                minX = min(minX, corner.x); maxX = max(maxX, corner.x)
+                minZ = min(minZ, corner.z); maxZ = max(maxZ, corner.z)
+            }
+        }
+    }
+    return (minX, maxX, minZ, maxZ)
 }

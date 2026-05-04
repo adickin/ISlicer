@@ -16,28 +16,52 @@ struct ModelTransform: Equatable {
     /// The 8 AABB corners of the model (in pivot space: Y from 0 to height, centred in X/Z)
     /// are scaled and rotated, then the minimum Y is returned.
     func minWorldY(meshInfo: STLMeshInfo) -> Float {
-        let hx: Float = meshInfo.sizeMMX / 200   // half-width in SceneKit units
-        let hz: Float = meshInfo.sizeMMZ / 100   // full height
-        let hy: Float = meshInfo.sizeMMY / 200   // half-depth
-
-        let corners: [SIMD3<Float>] = [
-            SIMD3(-hx, 0,  -hy), SIMD3(hx, 0,  -hy),
-            SIMD3(-hx, hz, -hy), SIMD3(hx, hz, -hy),
-            SIMD3(-hx, 0,   hy), SIMD3(hx, 0,   hy),
-            SIMD3(-hx, hz,  hy), SIMD3(hx, hz,  hy),
-        ]
-
         let s = scale
-        // Pivot eulerAngles = (rx, rz, ry) in SceneKit ZYX order → Rx(rx)*Ry(rz)*Rz(ry)
         let r = rotationDeg * (.pi / 180)
+        // Pivot eulerAngles = (rx, rz, ry) in SceneKit ZYX order → Rx(rx)*Ry(rz)*Rz(ry)
         let q = simd_quaternion(r.x, SIMD3<Float>(1,0,0))
               * simd_quaternion(r.z, SIMD3<Float>(0,1,0))
               * simd_quaternion(r.y, SIMD3<Float>(0,0,1))
 
-        // Pivot scale = (scale.x, scale.z, scale.y): SceneKit Y scale = scale.z, Z scale = scale.y
-        return corners.map { c in
-            simd_act(q, SIMD3(c.x * s.x, c.y * s.z, c.z * s.y)).y
-        }.min() ?? 0
+        // The mesh node centers geometry in X/Z and places its bottom at pivot Y=0.
+        // SCNGeometry vertices are scaled by 1/100 in buildGeometry (mm → SceneKit units).
+        // STL vertex (vx, vy, vz) in mm maps to pivot space (SceneKit units) as:
+        //   pivot_x = (vx - cx) / 100 * s.x
+        //   pivot_y = (vz - minZ) / 100 * s.z    (STL Z = height → SceneKit Y)
+        //   pivot_z = (cy - vy) / 100 * s.y      (STL Y = depth → SceneKit -Z)
+        let bb = meshInfo.boundingBoxMM
+        let cx: Float = (bb.min.x + bb.max.x) * 0.5
+        let cy: Float = (bb.min.y + bb.max.y) * 0.5
+        let minBZ: Float = bb.min.z
+        let mm2u: Float = 1.0 / 100.0
+
+        if !meshInfo.vertices.isEmpty {
+            var minY: Float = .infinity
+            for v in meshInfo.vertices {
+                let p = SIMD3<Float>((v.x - cx) * mm2u * s.x,
+                                    (v.z - minBZ) * mm2u * s.z,
+                                    (cy - v.y) * mm2u * s.y)
+                let wy = simd_act(q, p).y
+                if wy < minY { minY = wy }
+            }
+            return minY == .infinity ? 0 : minY
+        }
+
+        // Fallback: 8-corner AABB (less accurate for non-box geometry when rotated).
+        let hx: Float = meshInfo.sizeMMX / 200
+        let hy: Float = meshInfo.sizeMMZ / 100
+        let hz: Float = meshInfo.sizeMMY / 200
+        let corners: [SIMD3<Float>] = [
+            SIMD3<Float>(-hx * s.x, 0,        -hz * s.y),
+            SIMD3<Float>( hx * s.x, 0,        -hz * s.y),
+            SIMD3<Float>(-hx * s.x, hy * s.z, -hz * s.y),
+            SIMD3<Float>( hx * s.x, hy * s.z, -hz * s.y),
+            SIMD3<Float>(-hx * s.x, 0,         hz * s.y),
+            SIMD3<Float>( hx * s.x, 0,         hz * s.y),
+            SIMD3<Float>(-hx * s.x, hy * s.z,  hz * s.y),
+            SIMD3<Float>( hx * s.x, hy * s.z,  hz * s.y),
+        ]
+        return corners.map { simd_act(q, $0).y }.min() ?? 0
     }
 
     /// Copy of this transform with positionMM.z adjusted so the model bottom sits exactly on the bed.

@@ -39,6 +39,8 @@ struct STLMeshInfo {
         let area: Float
     }
     let faces: [Face]
+    /// All triangle vertices in raw STL coordinates (mm), 3 per triangle.
+    let vertices: [SIMD3<Float>]
     /// Bounding box in raw STL coordinates (mm).
     let boundingBoxMM: (min: SIMD3<Float>, max: SIMD3<Float>)
 
@@ -60,17 +62,20 @@ func parseSTLMeshInfo(url: URL) throws -> STLMeshInfo {
 
     var faces: [STLMeshInfo.Face] = []
     faces.reserveCapacity(triangles.count)
+    var verts: [SIMD3<Float>] = []
+    verts.reserveCapacity(triangles.count * 3)
     var minPt = SIMD3<Float>(repeating:  Float.infinity)
     var maxPt = SIMD3<Float>(repeating: -Float.infinity)
 
     for (v0, v1, v2) in triangles {
         for v in [v0, v1, v2] { minPt = min(minPt, v); maxPt = max(maxPt, v) }
+        verts.append(v0); verts.append(v1); verts.append(v2)
         let cross = simd_cross(v1 - v0, v2 - v0)
         let len   = simd_length(cross)
         let n     = len > 1e-10 ? cross / len : SIMD3<Float>(0, 0, 1)
         faces.append(STLMeshInfo.Face(normal: n, area: len * 0.5))
     }
-    return STLMeshInfo(faces: faces, boundingBoxMM: (minPt, maxPt))
+    return STLMeshInfo(faces: faces, vertices: verts, boundingBoxMM: (minPt, maxPt))
 }
 
 // MARK: - Error

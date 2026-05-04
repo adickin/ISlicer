@@ -88,6 +88,7 @@ struct STLSceneView: UIViewRepresentable {
             target: context.coordinator,
             action: #selector(Coordinator.handleTap(_:)))
         tap.cancelsTouchesInView = false
+        tap.delegate = context.coordinator
         scnView.addGestureRecognizer(tap)
         context.coordinator.tapGesture = tap
 
@@ -666,20 +667,16 @@ final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         guard let scnView = tap.view as? SCNView else { return }
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),
                                         to: nil, from: nil, for: nil)
-        let hits = scnView.hitTest(tap.location(in: scnView), options: nil)
-        // Skip bed/axes geometry — their line primitives can intercept taps.
-        let hit = hits.first(where: { !isSceneFixtureNode($0.node) })?.node
-        if gizmoNodeInfo(hit) != nil { return }
-        setSelected(id: modelID(for: hit))
-    }
-
-    private func isSceneFixtureNode(_ node: SCNNode?) -> Bool {
-        var n = node
-        while let cur = n {
-            if cur.name == "printBed" || cur.name == "axes" { return true }
-            n = cur.parent
-        }
-        return false
+        // .all walks every intersection along the ray. The gizmo arrows have large invisible
+        // hit cylinders that would otherwise be the *closest* hit and shadow the model behind
+        // them. We just look for any model along the ray; if none, the tap deselects.
+        // (Gizmo dragging uses a separate pan gesture, so a stationary tap on a gizmo handle
+        //  has no meaning — letting it fall through to deselect is fine.)
+        let hits = scnView.hitTest(tap.location(in: scnView),
+                                   options: [.searchMode: SCNHitTestSearchMode.all.rawValue,
+                                             .ignoreHiddenNodes: true])
+        let modelHit = hits.first(where: { modelID(for: $0.node) != nil })?.node
+        setSelected(id: modelID(for: modelHit))
     }
 
     private func setSelected(id: UUID?) {
@@ -780,8 +777,10 @@ final class Coordinator: NSObject, UIGestureRecognizerDelegate {
     // MARK: Gesture delegate
 
     func gestureRecognizerShouldBegin(_ gr: UIGestureRecognizer) -> Bool {
-        guard gr === panGesture,
-              let scnView = gr.view as? SCNView,
+        // We're the delegate for both tap and pan — only gate the gizmo pan.
+        // Anything else (notably the tap) must be allowed to recognize.
+        guard gr === panGesture else { return true }
+        guard let scnView = gr.view as? SCNView,
               selectedModelID != nil,
               gizmoContainerNode?.isHidden == false else { return false }
         let hits = scnView.hitTest(gr.location(in: scnView),
@@ -791,7 +790,10 @@ final class Coordinator: NSObject, UIGestureRecognizerDelegate {
 
     func gestureRecognizer(_ gr: UIGestureRecognizer,
                            shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        // Allow tap to coexist with the camera's orbit gesture — without this, the camera pan
+        // cancels the tap, making it impossible to re-select a model after deselecting.
         return gr === panGesture || other === panGesture
+            || gr === tapGesture || other === tapGesture
     }
 
     // MARK: Helpers
