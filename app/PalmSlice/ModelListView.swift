@@ -5,6 +5,7 @@ struct ModelListView: View {
     @Binding var selectedModelID: UUID?
     let onAdd: () -> Void
     let disabled: Bool
+    var onModelsChanged: (() -> Void)? = nil
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -42,7 +43,7 @@ struct ModelListView: View {
         if selectedModelID == id {
             selectedModelID = models.first?.id
         }
-        checkIntersections(models: &models)
+        onModelsChanged?()
     }
 }
 

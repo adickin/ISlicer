@@ -66,6 +66,11 @@ struct ContentView: View {
     /// Retained while a slice is in progress; lets the cancel button reach slicer_cancel().
     @State private var activeHandle: SlicerHandle? = nil
 
+    /// Debounce token for the precise (mesh-BVH) collision check. Each call
+    /// to updateIntersections cancels the prior task; the precise check only
+    /// runs once placement has been still for ~750ms.
+    @State private var preciseCheckTask: Task<Void, Never>? = nil
+
     // MARK: Helpers
 
     private var selectedModel: PlacedModel? {
@@ -94,7 +99,7 @@ struct ContentView: View {
             set: { newVal in
                 if let idx = self.selectedIndex {
                     self.models[idx].transform = newVal
-                    checkIntersections(models: &self.models, bedX: self.bedXVal, bedY: self.bedYVal)
+                    self.updateIntersections()
                 }
             }
         )
@@ -130,7 +135,7 @@ struct ContentView: View {
                             selectedModelID = id
                         },
                         onDragEnded: {
-                            checkIntersections(models: &models, bedX: bedXVal, bedY: bedYVal)
+                            updateIntersections()
                         },
                         onCameraSet: {
                             cameraHasBeenSet = true
@@ -242,7 +247,8 @@ struct ContentView: View {
                         models: $models,
                         selectedModelID: $selectedModelID,
                         onAdd: { showFilePicker = true },
-                        disabled: isBusy
+                        disabled: isBusy,
+                        onModelsChanged: { updateIntersections() }
                     )
                 }
                 if !showLayerPreview && selectedModelID != nil && selectedModel != nil {
@@ -429,7 +435,39 @@ struct ContentView: View {
     private func writeTransform(_ mutation: (inout ModelTransform) -> Void) {
         guard let idx = selectedIndex else { return }
         mutation(&models[idx].transform)
+        updateIntersections()
+    }
+
+    /// Runs the cheap OBB intersection pass immediately (instant red feedback)
+    /// and schedules a debounced precise mesh-BVH pass for ~750ms after the
+    /// last placement change. Call from any transform mutation site.
+    private func updateIntersections() {
         checkIntersections(models: &models, bedX: bedXVal, bedY: bedYVal)
+        schedulePreciseIntersectionCheck()
+    }
+
+    private func schedulePreciseIntersectionCheck() {
+        preciseCheckTask?.cancel()
+        preciseCheckTask = Task.detached(priority: .userInitiated) {
+            do { try await Task.sleep(nanoseconds: 750_000_000) }
+            catch { return }                       // cancelled
+
+            let snapshot: [PlacedModel] = await MainActor.run { self.models }
+            let bx: Double = await MainActor.run { self.bedXVal }
+            let by: Double = await MainActor.run { self.bedYVal }
+            if Task.isCancelled { return }
+
+            let intersectingIDs = preciseIntersectionResults(
+                models: snapshot, bedX: bx, bedY: by)
+            if Task.isCancelled { return }
+
+            await MainActor.run {
+                for i in self.models.indices {
+                    self.models[i].isIntersecting =
+                        intersectingIDs.contains(self.models[i].id)
+                }
+            }
+        }
     }
 
     private func centerOnBed() {
@@ -443,7 +481,7 @@ struct ContentView: View {
         } else {
             models[idx].transform.positionMM.y = 0
         }
-        checkIntersections(models: &models, bedX: bedXVal, bedY: bedYVal)
+        updateIntersections()
     }
 
     private func layFlatInline() {
@@ -471,7 +509,7 @@ struct ContentView: View {
             models[idx].transform.rotationDeg = node.simdEulerAngles * (180 / .pi)
         }
         models[idx].transform = models[idx].transform.droppedToBed(meshInfo: info)
-        checkIntersections(models: &models, bedX: bedXVal, bedY: bedYVal)
+        updateIntersections()
     }
 
     private var scaleXBinding: Binding<Float> {
@@ -485,7 +523,7 @@ struct ContentView: View {
             } else {
                 self.models[idx].transform.scale.x = v
             }
-            checkIntersections(models: &self.models, bedX: self.bedXVal, bedY: self.bedYVal)
+            self.updateIntersections()
         }
     }
     private var scaleYBinding: Binding<Float> {
@@ -499,7 +537,7 @@ struct ContentView: View {
             } else {
                 self.models[idx].transform.scale.y = v
             }
-            checkIntersections(models: &self.models, bedX: self.bedXVal, bedY: self.bedYVal)
+            self.updateIntersections()
         }
     }
     private var scaleZBinding: Binding<Float> {
@@ -513,7 +551,7 @@ struct ContentView: View {
             } else {
                 self.models[idx].transform.scale.z = v
             }
-            checkIntersections(models: &self.models, bedX: self.bedXVal, bedY: self.bedYVal)
+            self.updateIntersections()
         }
     }
 
@@ -863,11 +901,13 @@ struct ContentView: View {
             Task.detached(priority: .userInitiated) {
                 let geo  = try? parseSTL(url: dest, colorMode: mode)
                 let info = try? parseSTLMeshInfo(url: dest)
+                let bvh  = info.flatMap { TriangleBVH.build(triangleVertices: $0.vertices) }
                 await MainActor.run {
                     if let idx = models.firstIndex(where: { $0.id == id }) {
                         models[idx].geometry = geo
                         models[idx].meshInfo = info
-                        checkIntersections(models: &models, bedX: bedXVal, bedY: bedYVal)
+                        models[idx].bvh      = bvh
+                        updateIntersections()
                     }
                     isParsingSTL = false
                 }

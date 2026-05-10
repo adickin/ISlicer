@@ -8,5 +8,6 @@ struct PlacedModel: Identifiable {
     var geometry: SCNGeometry?
     var transform: ModelTransform
     var meshInfo: STLMeshInfo?
+    var bvh: TriangleBVH?
     var isIntersecting: Bool = false
 }

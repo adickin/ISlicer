@@ -25,7 +25,8 @@
       "Bash(xcodebuild -project SlicePal.xcodeproj -scheme SlicePal -destination 'platform=iOS Simulator,name=iPhone 16' -configuration Debug build)",
       "Bash(xcodebuild -project /Users/adickin/work/IosSlicer/app/SlicePal.xcodeproj -scheme SlicePal -destination 'platform=iOS Simulator,name=iPhone 16' -configuration Debug build)",
       "Bash(ibtool --errors --warnings --notices /Users/adickin/work/IosSlicer/app/SlicePal/LaunchScreen.storyboard)",
-      "Bash(git *)"
+      "Bash(git *)",
+      "Bash(xcodebuild -project PalmSlice.xcodeproj -target PalmSlice -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -configuration Debug build)"
     ]
   }
 }
