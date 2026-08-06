@@ -1,4 +1,4 @@
-# Additional Notes — SlicePal
+# Additional Notes — PalmSlice
 
 Reference material removed from CLAUDE.md for brevity. Still accurate as of initial setup.
 
