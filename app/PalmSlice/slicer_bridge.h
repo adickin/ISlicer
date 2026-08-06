@@ -106,12 +106,27 @@ typedef struct {
     // Infill
     int   infill_density;        // 0–100 % — fill_density
     int   infill_pattern;        // InfillPattern::bridgeInt — fill_pattern
+    // How far infill lines overlap into the perimeters, as a % of extrusion
+    // width. Stock PrusaSlicer is 25%; lower it to reduce material being forced
+    // out through the walls on dense/solid parts (at the cost of wall bonding).
+    float infill_overlap;        // % — infill_overlap
 
     // Speed (mm/s)
     float print_speed;           // perimeter_speed
     float infill_speed;          // infill_speed
     float travel_speed;          // travel_speed
     float first_layer_speed;     // first_layer_speed
+    float solid_infill_speed;    // solid_infill_speed — top/bottom/internal solid shells
+    float top_solid_infill_speed; // top_solid_infill_speed — visible top surface only
+
+    // Ironing — a slow, low-flow finishing pass over solid top surfaces that
+    // smooths ridges left by solid infill. Most useful on parts with thick
+    // top/bottom shells (many solid layers) where those ridges are most visible.
+    int   ironing;                // bool — ironing
+    int   ironing_type;           // 0=all top surfaces, 1=topmost only, 2=all solid surfaces — ironing_type
+    float ironing_flowrate;       // % — ironing_flowrate
+    float ironing_speed;          // mm/s — ironing_speed
+    float ironing_spacing;        // mm — ironing_spacing
 
     // Support
     int   generate_support;          // bool — support_material
@@ -120,6 +135,12 @@ typedef struct {
     int   support_overhang_angle;    // degrees — support_material_threshold
     float support_xy_spacing;        // mm — support_material_xy_spacing
     int   support_use_towers;        // bool — support_material_with_sheath
+    // Support-to-part interface. These govern how solid the part's supported
+    // (bottom-on-support) surface prints. Smaller contact distance + more/denser
+    // interface layers => more solid bottom, at the cost of harder removal.
+    float support_contact_distance;  // mm — support_material_contact_distance (Z gap between support top and part)
+    int   support_interface_layers;  // support_material_interface_layers (dense layers under the part; also mirrored to bottom)
+    float support_interface_spacing; // mm — support_material_interface_spacing (0 = fully solid interface)
 
     // Build plate adhesion
     // adhesion_type: 0=none, 1=skirt, 2=brim, 3=raft
@@ -136,6 +157,36 @@ typedef struct {
 // Returns 0 on success, negative on error.
 int slicer_apply_slice_config(SlicerHandle handle,
                               const SlicerSliceConfig* cfg);
+
+// Result of slicer_check_slice_config: flags wall/top/bottom settings that
+// are too aggressive for the loaded model's geometry — e.g. more wall loops
+// than fit across the model's thinnest horizontal span, or more top/bottom
+// solid layers than fit in its shortest vertical span. Settings like that
+// don't fail to slice, but produce overlapping/self-intersecting perimeters
+// or fully-solid parts instead of a clean print.
+//
+// This is a bounding-box heuristic (nozzle diameter × geometry extents), not
+// full per-region mesh analysis — it catches settings that are too
+// aggressive for the model as a whole, not thin features buried inside an
+// otherwise large part.
+typedef struct {
+    int needs_warning;             // 1 if any suggested value differs from cfg's input
+    int suggested_wall_count;
+    int suggested_top_layers;
+    int suggested_bottom_layers;
+} SlicerSliceConfigCheck;
+
+// Sanity-check wall_count/top_layers/bottom_layers in cfg against the loaded
+// model's geometry and the applied printer's nozzle diameter. Does not
+// modify the slicer context or cfg — read-only, safe to call repeatedly
+// (e.g. live as the user edits a slice profile).
+//
+// Must be called after slicer_load_stl/slicer_add_stl (model geometry known)
+// and slicer_apply_printer_config (nozzle_diameter known).
+// Returns 0 on success, negative on error (out is left zeroed on error).
+int slicer_check_slice_config(SlicerHandle handle,
+                              const SlicerSliceConfig* cfg,
+                              SlicerSliceConfigCheck* out);
 
 // ── Material profile ──────────────────────────────────────────────────────────
 

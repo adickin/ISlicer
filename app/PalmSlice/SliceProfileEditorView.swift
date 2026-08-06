@@ -22,6 +22,7 @@ struct SliceProfileEditorView: View {
                 layersSection
                 wallsSection
                 topBottomSection
+                ironingSection
                 infillSection
                 speedSection
                 supportSection
@@ -86,10 +87,43 @@ struct SliceProfileEditorView: View {
         }
     }
 
+    private func layerThicknessCaption(_ layers: Int) -> String {
+        String(format: "≈ %.2f mm", Double(layers) * draft.layerHeight)
+    }
+
+    // Min Top/Bottom Thickness is the physically-meaningful control (mm) —
+    // typing a thickness updates the layer count to match, the way
+    // PrusaSlicer's own UI derives layer count from a target thickness.
+    // The layer Stepper still works independently afterward; it just won't
+    // rewrite a thickness you already typed.
+    private func syncLayersFromThickness() {
+        guard draft.layerHeight > 0 else { return }
+        if draft.topThickness > 0 {
+            draft.topLayers = Int(ceil(draft.topThickness / draft.layerHeight))
+        }
+        if draft.bottomThickness > 0 {
+            draft.bottomLayers = Int(ceil(draft.bottomThickness / draft.layerHeight))
+        }
+    }
+
     private var topBottomSection: some View {
         Section("Top / Bottom") {
-            Stepper("Top Layers: \(draft.topLayers)", value: $draft.topLayers, in: 0...20)
-            Stepper("Bottom Layers: \(draft.bottomLayers)", value: $draft.bottomLayers, in: 0...20)
+            Stepper(value: $draft.topLayers, in: 0...20) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Top Layers: \(draft.topLayers)")
+                    Text(layerThicknessCaption(draft.topLayers))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Stepper(value: $draft.bottomLayers, in: 0...20) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Bottom Layers: \(draft.bottomLayers)")
+                    Text(layerThicknessCaption(draft.bottomLayers))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
             LabeledContent("Min Top Thickness (mm)") {
                 TextField("0", value: $draft.topThickness, format: .number)
                     .keyboardType(.decimalPad)
@@ -101,6 +135,8 @@ struct SliceProfileEditorView: View {
                     .multilineTextAlignment(.trailing)
             }
         }
+        .onChange(of: draft.topThickness) { _ in syncLayersFromThickness() }
+        .onChange(of: draft.bottomThickness) { _ in syncLayersFromThickness() }
     }
 
     private var infillSection: some View {
@@ -122,6 +158,11 @@ struct SliceProfileEditorView: View {
                 ForEach(InfillPattern.allCases) { pattern in
                     Text(pattern.rawValue).tag(pattern)
                 }
+            }
+            LabeledContent("Infill Overlap (%)") {
+                TextField("15", value: $draft.infillOverlap, format: .number)
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.trailing)
             }
         }
     }
@@ -147,6 +188,46 @@ struct SliceProfileEditorView: View {
                 TextField("30", value: $draft.firstLayerSpeed, format: .number)
                     .keyboardType(.decimalPad)
                     .multilineTextAlignment(.trailing)
+            }
+            LabeledContent("Solid Infill") {
+                TextField("20", value: $draft.solidInfillSpeed, format: .number)
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.trailing)
+            }
+            LabeledContent("Top Solid Infill") {
+                TextField("15", value: $draft.topSolidInfillSpeed, format: .number)
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.trailing)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var ironingSection: some View {
+        Section("Ironing") {
+            Toggle("Enable Ironing", isOn: $draft.ironingEnabled)
+
+            if draft.ironingEnabled {
+                Picker("Coverage", selection: $draft.ironingType) {
+                    ForEach(IroningType.allCases) { type in
+                        Text(type.rawValue).tag(type)
+                    }
+                }
+                LabeledContent("Flow Rate (%)") {
+                    TextField("15", value: $draft.ironingFlowrate, format: .number)
+                        .keyboardType(.decimalPad)
+                        .multilineTextAlignment(.trailing)
+                }
+                LabeledContent("Speed (mm/s)") {
+                    TextField("15", value: $draft.ironingSpeed, format: .number)
+                        .keyboardType(.decimalPad)
+                        .multilineTextAlignment(.trailing)
+                }
+                LabeledContent("Line Spacing (mm)") {
+                    TextField("0.1", value: $draft.ironingSpacing, format: .number)
+                        .keyboardType(.decimalPad)
+                        .multilineTextAlignment(.trailing)
+                }
             }
         }
     }
@@ -175,6 +256,19 @@ struct SliceProfileEditorView: View {
                         .multilineTextAlignment(.trailing)
                 }
                 Toggle("Use Support Towers", isOn: $draft.supportUseTowers)
+
+                Stepper("Interface Layers: \(draft.supportInterfaceLayers)",
+                        value: $draft.supportInterfaceLayers, in: 0...10)
+                LabeledContent("Contact Z Gap (mm)") {
+                    TextField("0.15", value: $draft.supportContactDistance, format: .number)
+                        .keyboardType(.decimalPad)
+                        .multilineTextAlignment(.trailing)
+                }
+                LabeledContent("Interface Spacing (mm)") {
+                    TextField("0.2", value: $draft.supportInterfaceSpacing, format: .number)
+                        .keyboardType(.decimalPad)
+                        .multilineTextAlignment(.trailing)
+                }
             }
         }
     }
@@ -291,15 +385,17 @@ private let helpSections: [HelpSection] = [
         HelpEntry(name: "Bottom Layers",
                   description: "Number of solid layers printed on the bottom (first layers on the bed). Similar tradeoff to top layers. Usually the same count as top layers."),
         HelpEntry(name: "Min Top Thickness",
-                  description: "Alternative way to specify top solid layers: the slicer will add enough layers so the total top thickness is at least this many mm, regardless of layer height. Set to 0 to use the layer count only."),
+                  description: "The physically-meaningful way to set top thickness: type a target in mm and Top Layers updates automatically to match your layer height. 0.8–1.2 mm is typical — that's usually enough to fully hide the infill pattern without needing an excessive layer count. Set to 0 to go back to specifying Top Layers directly."),
         HelpEntry(name: "Min Bottom Thickness",
-                  description: "Same as Min Top Thickness but for the bottom. Set to 0 to use the layer count only."),
+                  description: "Same as Min Top Thickness but for the bottom. Set to 0 to go back to specifying Bottom Layers directly."),
     ]),
     HelpSection(title: "Infill", entries: [
         HelpEntry(name: "Density",
                   description: "How much of the interior is filled with plastic, as a percentage. 0% is hollow, 100% is completely solid. 15–20% is common for decorative prints; 40%+ for parts that need structural strength."),
         HelpEntry(name: "Pattern",
                   description: "The geometry of the infill structure inside the model. Gyroid is strong in all directions and prints well at high speeds. Grid is simple and fast. Honeycomb is efficient. Adaptive Cubic gets denser near surfaces automatically. Lightning is ultra-fast with minimal material but weak — good for display models only."),
+        HelpEntry(name: "Infill Overlap",
+                  description: "How far infill lines push into the perimeters, as a percent of extrusion width. Some overlap is needed to bond the infill to the walls. The stock value is 25%, but on dense or fully-solid parts that over-packs material with nowhere to go, forcing it out through the walls (bulging, rough layer lines). 15% is a good balance; lower it further (10%) if solid parts still bulge, raise it if infill separates from the walls. If bulging persists at low overlap, the cause is likely over-extrusion — calibrate flow via the Material profile's extrusion multiplier."),
     ]),
     HelpSection(title: "Speed", entries: [
         HelpEntry(name: "Print Speed (Perimeter)",
@@ -310,6 +406,22 @@ private let helpSections: [HelpSection] = [
                   description: "How fast the nozzle moves when not extruding plastic (moving between features). Faster travel reduces stringing and print time. 120–150 mm/s is typical; direct-drive printers can go faster than Bowden."),
         HelpEntry(name: "First Layer Speed",
                   description: "Speed for the entire first layer only. Printing slowly on the first layer gives the plastic more time to adhere to the bed. 20–30 mm/s is common regardless of other speed settings."),
+        HelpEntry(name: "Solid Infill",
+                  description: "How fast the nozzle moves while printing solid regions (top, bottom, and any solid internal shells) — slower than sparse infill since every pass here is visible or load-bearing. 15–25 mm/s is typical."),
+        HelpEntry(name: "Top Solid Infill",
+                  description: "How fast the nozzle moves on the very top, outward-facing solid layer specifically. This is the slowest infill speed of all — it's the one surface you'll actually see, so quality matters most here. 10–20 mm/s is typical."),
+    ]),
+    HelpSection(title: "Ironing", entries: [
+        HelpEntry(name: "Enable Ironing",
+                  description: "Adds a second, low-flow finishing pass over solid top surfaces after solid infill prints, melting down the ridges left between infill lines for a smoother finish. Most worth turning on when Top Layers or Min Top Thickness is high enough that those ridges are clearly visible on a large flat top — it does add print time."),
+        HelpEntry(name: "Coverage",
+                  description: "Which surfaces get ironed. All Top Surfaces irons every upward-facing solid region. Topmost Surface Only irons just the very last layer of the print — faster, and enough if only the final top matters. All Solid Surfaces also irons internal solid shells, not just the outside."),
+        HelpEntry(name: "Flow Rate",
+                  description: "How much plastic the ironing pass extrudes, as a percentage of normal flow. Low on purpose — ironing is meant to smear existing plastic flat, not add more. 10–20% is typical; too high causes over-extrusion and blobs on the ironed surface."),
+        HelpEntry(name: "Speed",
+                  description: "How fast the ironing pass moves. Slower gives the plastic more time to flatten out but adds print time. 10–20 mm/s is typical."),
+        HelpEntry(name: "Line Spacing",
+                  description: "Distance between adjacent ironing passes. Smaller spacing gives a smoother result but takes longer since more passes are needed to cover the same area. 0.1 mm is typical."),
     ]),
     HelpSection(title: "Support", entries: [
         HelpEntry(name: "Generate Support",
@@ -324,6 +436,12 @@ private let helpSections: [HelpSection] = [
                   description: "Gap in mm between the edge of the model and the edge of the support structure in XY. A larger gap makes supports easier to remove but leaves the overhang slightly unsupported near the edges. 0.5–1.0 mm is typical."),
         HelpEntry(name: "Use Support Towers",
                   description: "Adds a sheath (outer wall) around support columns to make them more rigid and less likely to topple on tall, narrow supports. Useful for tall models with small overhangs far from the bed."),
+        HelpEntry(name: "Interface Layers",
+                  description: "Number of dense, solid layers placed directly between the support and the model — the 'seat' the part builds on. More layers give a more solid, cleaner supported surface; fewer save time and filament. 3 is a good default. This count is mirrored onto the bottom of the supports as well."),
+        HelpEntry(name: "Contact Z Gap",
+                  description: "Vertical gap left between the top of the support and the model's supported surface. The larger this gap, the easier supports are to remove — but the rougher and less solid that bottom surface prints. The stock 0.2 mm leaves a full layer-height gap; drop toward 0.10–0.15 mm for a much more solid bottom (at the cost of harder removal)."),
+        HelpEntry(name: "Interface Spacing",
+                  description: "Line spacing within the interface layers. 0 mm prints a fully solid interface (most solid supported surface); larger values leave gaps that are easier to remove but rougher. 0.2 mm is a good balance."),
     ]),
     HelpSection(title: "Build Plate Adhesion", entries: [
         HelpEntry(name: "None",

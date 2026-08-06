@@ -46,5 +46,34 @@ enum BuiltInSliceProfiles {
         firstLayerSpeed: 20
     )
 
-    static let all: [SliceProfile] = [draft, standard, fine]
+    // Thicker walls and top/bottom shells for parts that need to be strong or
+    // watertight rather than fast/economical. Top/Bottom thickness is set
+    // directly in mm (layer counts below are kept in sync with it) — ironing
+    // is on since 6 solid top layers otherwise show visible infill ridges.
+    static let thickWalls = SliceProfile(
+        name: "Thick Walls (0.2 mm)",
+        layerHeight: 0.2,
+        firstLayerHeight: 0.2,
+        wallCount: 6,
+        horizontalExpansion: 0.0,
+        topLayers: 6,
+        bottomLayers: 6,
+        topThickness: 1.2,
+        bottomThickness: 1.2,
+        infillDensity: 20,
+        infillPattern: .gyroid,
+        printSpeed: 50,
+        infillSpeed: 70,
+        travelSpeed: 120,
+        firstLayerSpeed: 25,
+        solidInfillSpeed: 20,
+        topSolidInfillSpeed: 15,
+        ironingEnabled: true,
+        ironingType: .topSurfaces,
+        ironingFlowrate: 15,
+        ironingSpeed: 15,
+        ironingSpacing: 0.1
+    )
+
+    static let all: [SliceProfile] = [draft, standard, fine, thickWalls]
 }

@@ -12,6 +12,14 @@ enum SliceState {
     case failed(message: String)
 }
 
+// Choice offered when slicer_check_slice_config flags wall/top/bottom
+// settings that are too aggressive for the loaded model's geometry.
+private enum SliceConfigDecision {
+    case autoAdjust
+    case sliceAnyway
+    case cancel
+}
+
 // MARK: - Progress relay
 // Boxes a Swift closure so it can be passed as a C void* context pointer.
 
@@ -36,6 +44,10 @@ struct ContentView: View {
     @State private var showNoProfileAlert = false
     @State private var showNoSliceProfileAlert = false
     @State private var showIntersectingAlert = false
+    @State private var showConfigWarningAlert = false
+    @State private var configWarningCheck: SlicerSliceConfigCheck?
+    @State private var configWarningOriginal: (walls: Int, top: Int, bottom: Int)?
+    @State private var configDecisionContinuation: CheckedContinuation<SliceConfigDecision, Never>?
     @State private var isPanelExpanded = true
 
     // Multi-model state
@@ -231,6 +243,30 @@ struct ContentView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Some models are intersecting. Slicing may produce unexpected results. Continue?")
+        }
+        .alert("Settings May Not Print Cleanly", isPresented: $showConfigWarningAlert) {
+            Button("Auto-Adjust") {
+                configDecisionContinuation?.resume(returning: .autoAdjust)
+                configDecisionContinuation = nil
+            }
+            Button("Slice Anyway", role: .destructive) {
+                configDecisionContinuation?.resume(returning: .sliceAnyway)
+                configDecisionContinuation = nil
+            }
+            Button("Cancel", role: .cancel) {
+                configDecisionContinuation?.resume(returning: .cancel)
+                configDecisionContinuation = nil
+            }
+        } message: {
+            if let check = configWarningCheck, let orig = configWarningOriginal {
+                Text("""
+                Wall count (\(orig.walls)) and/or top/bottom layers (\(orig.top)/\(orig.bottom)) are more than this \
+                model's size and your nozzle diameter can support — this tends to cause overlapping or missing \
+                perimeters instead of a clean print.
+
+                Suggested: \(check.suggested_wall_count) walls, \(check.suggested_top_layers) top / \(check.suggested_bottom_layers) bottom layers.
+                """)
+            }
         }
     }
 
@@ -1001,7 +1037,8 @@ struct ContentView: View {
 
         // 7. Apply slice profile
         await setPhase("Applying slice profile…")
-        if !applySliceProfile(sliceProfile, to: handle) {
+        var sliceCfg = buildSliceConfig(sliceProfile)
+        if slicer_apply_slice_config(handle, &sliceCfg) != 0 {
             let msg = String(cString: slicer_last_error(handle))
             await MainActor.run { state = .failed(message: msg) ; showErrorAlert = true }
             return
@@ -1035,6 +1072,42 @@ struct ContentView: View {
                 let msg = String(cString: slicer_last_error(handle))
                 await MainActor.run { state = .failed(message: msg) ; showErrorAlert = true }
                 return
+            }
+        }
+
+        // 8.5 Sanity-check wall/top/bottom settings against the now-loaded,
+        // now-transformed model geometry (must run after step 8, since the
+        // check needs real instance bounding boxes).
+        var configCheck = SlicerSliceConfigCheck()
+        if slicer_check_slice_config(handle, &sliceCfg, &configCheck) == 0,
+           configCheck.needs_warning != 0 {
+            let original = (walls: Int(sliceCfg.wall_count),
+                            top: Int(sliceCfg.top_layers),
+                            bottom: Int(sliceCfg.bottom_layers))
+            let decision: SliceConfigDecision = await withCheckedContinuation { continuation in
+                Task { @MainActor in
+                    configWarningCheck = configCheck
+                    configWarningOriginal = original
+                    configDecisionContinuation = continuation
+                    showConfigWarningAlert = true
+                }
+            }
+
+            switch decision {
+            case .cancel:
+                await MainActor.run { state = .idle }
+                return
+            case .autoAdjust:
+                sliceCfg.wall_count = configCheck.suggested_wall_count
+                sliceCfg.top_layers = configCheck.suggested_top_layers
+                sliceCfg.bottom_layers = configCheck.suggested_bottom_layers
+                if slicer_apply_slice_config(handle, &sliceCfg) != 0 {
+                    let msg = String(cString: slicer_last_error(handle))
+                    await MainActor.run { state = .failed(message: msg) ; showErrorAlert = true }
+                    return
+                }
+            case .sliceAnyway:
+                break
             }
         }
 
@@ -1120,7 +1193,7 @@ struct ContentView: View {
 
     // MARK: Profiles → C bridge
 
-    private func applySliceProfile(_ profile: SliceProfile, to handle: SlicerHandle) -> Bool {
+    private func buildSliceConfig(_ profile: SliceProfile) -> SlicerSliceConfig {
         var cfg = SlicerSliceConfig()
         cfg.layer_height         = Float(profile.layerHeight)
         cfg.first_layer_height   = Float(profile.firstLayerHeight)
@@ -1132,23 +1205,34 @@ struct ContentView: View {
         cfg.bottom_thickness     = Float(profile.bottomThickness)
         cfg.infill_density       = Int32(profile.infillDensity)
         cfg.infill_pattern       = profile.infillPattern.bridgeInt
+        cfg.infill_overlap       = Float(profile.infillOverlap)
         cfg.print_speed          = Float(profile.printSpeed)
         cfg.infill_speed         = Float(profile.infillSpeed)
         cfg.travel_speed         = Float(profile.travelSpeed)
         cfg.first_layer_speed    = Float(profile.firstLayerSpeed)
+        cfg.solid_infill_speed     = Float(profile.solidInfillSpeed)
+        cfg.top_solid_infill_speed = Float(profile.topSolidInfillSpeed)
+        cfg.ironing              = profile.ironingEnabled ? 1 : 0
+        cfg.ironing_type         = profile.ironingType.bridgeInt
+        cfg.ironing_flowrate     = Float(profile.ironingFlowrate)
+        cfg.ironing_speed        = Float(profile.ironingSpeed)
+        cfg.ironing_spacing      = Float(profile.ironingSpacing)
         cfg.generate_support     = profile.generateSupport ? 1 : 0
         cfg.support_style        = profile.supportStyle.bridgeInt
         cfg.support_buildplate_only = profile.supportPlacement == .buildplateOnly ? 1 : 0
         cfg.support_overhang_angle  = Int32(profile.supportOverhangAngle)
         cfg.support_xy_spacing      = Float(profile.supportHorizontalExpansion)
         cfg.support_use_towers      = profile.supportUseTowers ? 1 : 0
+        cfg.support_contact_distance = Float(profile.supportContactDistance)
+        cfg.support_interface_layers = Int32(profile.supportInterfaceLayers)
+        cfg.support_interface_spacing = Float(profile.supportInterfaceSpacing)
         cfg.adhesion_type        = profile.adhesionType.bridgeInt
         cfg.brim_type            = profile.brimType.bridgeInt
         cfg.brim_width           = Float(profile.brimWidth)
         cfg.skirt_loops          = Int32(profile.skirtLoops)
         cfg.skirt_distance       = Float(profile.skirtDistance)
         cfg.raft_layers          = Int32(profile.raftLayers)
-        return slicer_apply_slice_config(handle, &cfg) == 0
+        return cfg
     }
 
     private func applyMaterialProfile(_ profile: MaterialProfile, to handle: SlicerHandle) -> Bool {

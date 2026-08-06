@@ -15,7 +15,7 @@ final class SliceProfileStore: ObservableObject {
     }
 
     // Bump when BuiltInSliceProfiles changes in a breaking way.
-    private static let seedVersion = 1
+    private static let seedVersion = 4
     private static let seedVersionKey = "sliceProfileSeedVersion"
 
     // MARK: Load / Save

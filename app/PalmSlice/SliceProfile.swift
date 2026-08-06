@@ -73,12 +73,28 @@ struct SliceProfile: Codable, Identifiable {
     // MARK: - Infill
     var infillDensity: Int = 20         // %  — PrusaSlicer: fill_density
     var infillPattern: InfillPattern = .gyroid // PrusaSlicer: fill_pattern
+    // Overlap of infill into perimeters (% of extrusion width). Stock is 25%;
+    // 15% reduces material squished out through the walls on dense/solid parts.
+    var infillOverlap: Double = 15.0    // %  — PrusaSlicer: infill_overlap
 
     // MARK: - Speed (mm/s)
     var printSpeed: Double = 60.0       // PrusaSlicer: perimeter_speed
     var infillSpeed: Double = 80.0      // PrusaSlicer: infill_speed
     var travelSpeed: Double = 120.0     // PrusaSlicer: travel_speed
     var firstLayerSpeed: Double = 30.0  // PrusaSlicer: first_layer_speed
+    var solidInfillSpeed: Double = 20.0     // PrusaSlicer: solid_infill_speed
+    var topSolidInfillSpeed: Double = 15.0  // PrusaSlicer: top_solid_infill_speed
+
+    // MARK: - Ironing
+    // A slow, low-flow finishing pass over solid top surfaces after solid
+    // infill, smoothing the ridges between infill lines. Most useful when
+    // Top Layers (or Min Top Thickness) is high enough that those ridges are
+    // clearly visible on a large flat top.
+    var ironingEnabled: Bool = false
+    var ironingType: IroningType = .topSurfaces  // PrusaSlicer: ironing_type
+    var ironingFlowrate: Double = 15.0           // %    — PrusaSlicer: ironing_flowrate
+    var ironingSpeed: Double = 15.0              // mm/s — PrusaSlicer: ironing_speed
+    var ironingSpacing: Double = 0.1             // mm   — PrusaSlicer: ironing_spacing
 
     // MARK: - Support
     var generateSupport: Bool = false
@@ -87,6 +103,11 @@ struct SliceProfile: Codable, Identifiable {
     var supportOverhangAngle: Int = 50   // degrees — PrusaSlicer: support_material_threshold
     var supportHorizontalExpansion: Double = 0.7 // mm — PrusaSlicer: support_material_xy_spacing
     var supportUseTowers: Bool = true    // PrusaSlicer: support_material_with_sheath
+    // Support-to-part interface — how solid the supported bottom surface prints.
+    // Smaller contact gap + dense interface = more solid bottom, harder removal.
+    var supportContactDistance: Double = 0.15 // mm — support_material_contact_distance
+    var supportInterfaceLayers: Int = 3       // PrusaSlicer: support_material_interface_layers
+    var supportInterfaceSpacing: Double = 0.2 // mm — support_material_interface_spacing (0 = solid)
 
     // MARK: - Build Plate Adhesion
     var adhesionType: AdhesionType = .none

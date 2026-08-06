@@ -12,6 +12,7 @@
 #include <stdexcept>
 #include <cstring>
 #include <functional>
+#include <algorithm>
 #include <cmath>
 #include <limits>
 
@@ -389,6 +390,11 @@ int slicer_apply_slice_config(SlicerHandle handle, const SlicerSliceConfig* cfg)
         ctx->config.set_key_value("fill_pattern",
             new Slic3r::ConfigOptionEnum<Slic3r::InfillPattern>(
                 static_cast<Slic3r::InfillPattern>(cfg->infill_pattern)));
+        // infill_overlap is a % of extrusion width (percent=true). Lower than
+        // the stock 25% reduces squish-out on dense/solid parts.
+        ctx->config.set_key_value("infill_overlap",
+            new Slic3r::ConfigOptionFloatOrPercent(
+                static_cast<double>(cfg->infill_overlap), true));
 
         // Speed — types verified against PrintConfig.hpp:
         // perimeter_speed: ConfigOptionFloat
@@ -404,6 +410,30 @@ int slicer_apply_slice_config(SlicerHandle handle, const SlicerSliceConfig* cfg)
         ctx->config.set_key_value("first_layer_speed",
             new Slic3r::ConfigOptionFloatOrPercent(
                 static_cast<double>(cfg->first_layer_speed), false));
+        ctx->config.set_key_value("solid_infill_speed",
+            new Slic3r::ConfigOptionFloatOrPercent(
+                static_cast<double>(cfg->solid_infill_speed), false));
+        ctx->config.set_key_value("top_solid_infill_speed",
+            new Slic3r::ConfigOptionFloatOrPercent(
+                static_cast<double>(cfg->top_solid_infill_speed), false));
+
+        // Ironing
+        bool ironing_on = (cfg->ironing != 0);
+        ctx->config.set_key_value("ironing",
+            new Slic3r::ConfigOptionBool(ironing_on));
+        if (ironing_on) {
+            Slic3r::IroningType itype = (cfg->ironing_type == 1) ? Slic3r::IroningType::TopmostOnly
+                                       : (cfg->ironing_type == 2) ? Slic3r::IroningType::AllSolid
+                                                                   : Slic3r::IroningType::TopSurfaces;
+            ctx->config.set_key_value("ironing_type",
+                new Slic3r::ConfigOptionEnum<Slic3r::IroningType>(itype));
+            ctx->config.set_key_value("ironing_flowrate",
+                new Slic3r::ConfigOptionPercent(static_cast<double>(cfg->ironing_flowrate)));
+            ctx->config.set_key_value("ironing_speed",
+                new Slic3r::ConfigOptionFloat(static_cast<double>(cfg->ironing_speed)));
+            ctx->config.set_key_value("ironing_spacing",
+                new Slic3r::ConfigOptionFloat(static_cast<double>(cfg->ironing_spacing)));
+        }
 
         // Support
         bool gen_support = (cfg->generate_support != 0);
@@ -425,6 +455,20 @@ int slicer_apply_slice_config(SlicerHandle handle, const SlicerSliceConfig* cfg)
                     static_cast<double>(cfg->support_xy_spacing), false));
             ctx->config.set_key_value("support_material_with_sheath",
                 new Slic3r::ConfigOptionBool(cfg->support_use_towers != 0));
+            // Support-to-part interface — controls how solid the supported
+            // bottom surface prints. The stock 0.2mm contact distance leaves a
+            // full layer-height gap (rough/airy bottom); a tighter gap plus a
+            // few solid interface layers gives a much more solid seat.
+            ctx->config.set_key_value("support_material_contact_distance",
+                new Slic3r::ConfigOptionFloat(static_cast<double>(cfg->support_contact_distance)));
+            ctx->config.set_key_value("support_material_interface_layers",
+                new Slic3r::ConfigOptionInt(cfg->support_interface_layers));
+            // Mirror the same interface density onto the bottom of supports so
+            // the part sits on a dense seat rather than sparse support pattern.
+            ctx->config.set_key_value("support_material_bottom_interface_layers",
+                new Slic3r::ConfigOptionInt(cfg->support_interface_layers));
+            ctx->config.set_key_value("support_material_interface_spacing",
+                new Slic3r::ConfigOptionFloat(static_cast<double>(cfg->support_interface_spacing)));
         }
 
         // Build plate adhesion
@@ -477,6 +521,61 @@ int slicer_apply_slice_config(SlicerHandle handle, const SlicerSliceConfig* cfg)
         }
 
         ctx->slice_config_applied = true;
+        return 0;
+    } catch (const std::exception& e) {
+        return set_err(ctx, e);
+    }
+}
+
+int slicer_check_slice_config(SlicerHandle handle, const SlicerSliceConfig* cfg,
+                              SlicerSliceConfigCheck* out) {
+    auto ctx = CTX(handle);
+    if (!cfg || !out) return set_err(ctx, "null config/output pointer");
+    *out = SlicerSliceConfigCheck{};
+    try {
+        if (ctx->model.objects.empty()) return set_err(ctx, "no model loaded");
+
+        double nozzle_d = 0.4;
+        if (auto* opt = ctx->config.opt<Slic3r::ConfigOptionFloats>("nozzle_diameter")) {
+            if (!opt->values.empty() && opt->values[0] > 0.0) nozzle_d = opt->values[0];
+        }
+
+        double layer_h = static_cast<double>(cfg->layer_height);
+        if (layer_h <= 0.0) layer_h = 0.2;
+
+        // Smallest object's footprint/height across the plate — conservative:
+        // any one object thinner than the others still needs to print cleanly.
+        // instance_bounding_box(0, /*dont_translate=*/true) reflects the
+        // instance's actual scale/rotation, unlike raw_bounding_box().
+        double min_xy = std::numeric_limits<double>::max();
+        double min_z  = std::numeric_limits<double>::max();
+        for (auto* obj : ctx->model.objects) {
+            if (obj->instances.empty()) continue;
+            Slic3r::BoundingBoxf3 bb = obj->instance_bounding_box(0, true);
+            Slic3r::Vec3d size = bb.size();
+            min_xy = std::min({min_xy, size.x(), size.y()});
+            min_z  = std::min(min_z, size.z());
+        }
+        if (min_xy == std::numeric_limits<double>::max()) return set_err(ctx, "no placed instances");
+
+        // Each wall loop is ~1 nozzle width; loops nest in from both sides of
+        // the thinnest span, so more than roughly half that span overlaps.
+        int max_walls = std::max(1, static_cast<int>(std::floor(min_xy / (2.0 * nozzle_d))));
+
+        // Reserve at least half the model's layers for interior/infill so
+        // top+bottom solid regions can't consume the whole part between them.
+        int total_layers = static_cast<int>(std::floor(min_z / layer_h));
+        int max_each = std::max(1, total_layers / 4);
+
+        out->suggested_wall_count    = std::min(cfg->wall_count, max_walls);
+        out->suggested_top_layers    = std::min(cfg->top_layers, max_each);
+        out->suggested_bottom_layers = std::min(cfg->bottom_layers, max_each);
+
+        out->needs_warning =
+            (out->suggested_wall_count    != cfg->wall_count) ||
+            (out->suggested_top_layers    != cfg->top_layers) ||
+            (out->suggested_bottom_layers != cfg->bottom_layers);
+
         return 0;
     } catch (const std::exception& e) {
         return set_err(ctx, e);
