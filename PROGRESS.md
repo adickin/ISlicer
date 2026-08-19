@@ -2,8 +2,18 @@
 
 ## To Do
 
+### App Store Release Checklist
+- [ ] **TestFlight build** — first build submitted through App Store Connect / TestFlight; exercises real signing + provisioning + export path (not just local Xcode-to-device installs)
+- [ ] **App Store Connect app record** — listing, screenshots (per device class), description, category, age rating, support URL
+- [ ] **Privacy policy URL** — required by App Store Connect even though the app collects no data
+- [ ] **In-app About/Credits screen** — link to source repo + third-party license list (surfaces the AGPL-3.0 source-availability obligation already documented in `LICENSE.md`, but not currently shown to end users anywhere in the app)
+- [ ] **Fix `UIDeviceFamily` Info.plist warning** — `project.yml` sets it directly in Info.plist properties; Xcode overwrites this from `TARGETED_DEVICE_FAMILY` at build time and warns. Remove the Info.plist key, set the build setting instead.
+- [ ] **`ITSAppUsesNonExemptEncryption`** — add to Info.plist (app has no networking; setting `false` skips the export-compliance prompt on every submission)
+- [ ] **Broaden real-device test coverage** — currently validated on iPhone 14 Pro → Ender 3 S1 with real prints; try more STL geometries/sizes to rule out crashes/memory pressure on larger meshes
+- [ ] **(optional) basic automated tests** — no XCTest target exists yet; at minimum cover `slicer_bridge` C API and profile (printer/slice/material) serialization before locking a release build
+
 ### High Priority (v1 polish)
-- [ ] **Device build** — `build_device.sh` in progress; `common.sh` now platform-aware; `project.yml` uses `$(IOS_SYSROOT)` with SDK conditionals; `11_xcframework.sh` creates dual slice when both sysroots exist
+_(none outstanding — device build confirmed working on both simulator and device SDKs, see Completed)_
 
 ### Viewer
 _(all items complete — see Plans/viewer_features.md)_
@@ -31,8 +41,8 @@ Plan: `Plans/model_manipulation.md`
 - [ ] **Multi-model** — `[ModelInstance]` state, add/remove/select models, auto-arrange on bed (Phase 8)
 
 ### Infrastructure
-- [ ] **Proper bundleId** — replace `com.yourname` placeholder in `project.yml`
-- [ ] **App icon + launch screen**
+- [x] **Proper bundleId** — `com.adickin.PalmSlice` via `bundleIdPrefix` in `project.yml` + `project.local.yml` (team ID set)
+- [x] **App icon + launch screen**
 - [ ] **iPad layout** — split-view with settings panel
 - [ ] **Haptic feedback** on slice complete
 - [ ] **iCloud Drive sync** for profiles and recent files
@@ -98,6 +108,7 @@ Plan: `Plans/slicing_profiles.md`
 
 ### Build Chain
 - [x] iOS CMake toolchain (leetal/ios-cmake, SIMULATORARM64)
+- [x] Device build (leetal/ios-cmake, OS64/arm64) — `build_device.sh` → `~/ios-sysroot-dev` fully populated; `libslic3r.xcframework` has both `ios-arm64` and `ios-arm64-simulator` slices; Debug + Release both build clean for `iphoneos` SDK
 - [x] Clipper2 — polygon clipping
 - [x] Eigen3 — linear algebra headers
 - [x] zlib

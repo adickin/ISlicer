@@ -211,7 +211,7 @@ PalmSlice/
 - [ ] Printer profiles (bed size, nozzle diameter, start/end G-code)
 - [ ] Material sub-profiles (temps, retraction, fan, flow rate)
 - [ ] Slicing progress bar with cancellation
-- [ ] Device (non-simulator) build — rebuild deps with `PLATFORM=OS64`
+- [x] Device (non-simulator) build — deps rebuilt with `PLATFORM=OS64` via `build_device.sh`
 - [ ] Support structures
 - [ ] G-code layer preview
 
