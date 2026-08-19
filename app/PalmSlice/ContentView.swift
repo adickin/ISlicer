@@ -43,6 +43,7 @@ struct ContentView: View {
     @State private var showMaterialProfilePicker = false
     @State private var showNoProfileAlert = false
     @State private var showNoSliceProfileAlert = false
+    @State private var showAbout = false
     @State private var showIntersectingAlert = false
     @State private var showConfigWarningAlert = false
     @State private var configWarningCheck: SlicerSliceConfigCheck?
@@ -198,6 +199,7 @@ struct ContentView: View {
         .sheet(isPresented: $showProfilePicker) { ProfilePickerView() }
         .sheet(isPresented: $showSliceProfilePicker) { SliceProfilePickerView() }
         .sheet(isPresented: $showMaterialProfilePicker) { MaterialProfilePickerView() }
+        .sheet(isPresented: $showAbout) { AboutView() }
         .sheet(isPresented: $showTransformPanel) {
             if let info = selectedModel?.meshInfo {
                 TransformPanelView(
@@ -809,6 +811,16 @@ struct ContentView: View {
                     }
                 }
                 .disabled(isBusy)
+
+                // About / licenses row
+                Button { showAbout = true } label: {
+                    HStack {
+                        Label("About & Licenses", systemImage: "info.circle")
+                            .font(.subheadline)
+                        Spacer()
+                        Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
 
                 Divider()
 

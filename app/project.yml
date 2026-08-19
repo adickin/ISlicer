@@ -131,6 +131,11 @@ targets:
         ARCHS: arm64
         VALID_ARCHS: arm64
 
+        # iPhone + iPad. Drives the actual device-family behavior; the
+        # matching Info.plist key is intentionally omitted below since Xcode
+        # overwrites/ignores it in favor of this build setting.
+        TARGETED_DEVICE_FAMILY: "1,2"
+
         # Suppress warnings from libslic3r headers we don't own
         GCC_WARN_INHIBIT_ALL_WARNINGS: NO
         CLANG_WARN_EVERYTHING: NO
@@ -170,9 +175,29 @@ targets:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
 
-        # App targets both iPhone and iPad (iPad support is essentially free)
-        UIDeviceFamily:
-          - 1   # iPhone
-          - 2   # iPad
+        # App targets both iPhone and iPad — actual device family comes from
+        # the TARGETED_DEVICE_FAMILY build setting above, not this key.
 
         UILaunchStoryboardName: LaunchScreen
+
+        # No networking anywhere in the app (fully on-device) — skips the
+        # export-compliance question on every App Store Connect submission.
+        ITSAppUsesNonExemptEncryption: false
+
+  PalmSliceTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "16.0"
+
+    sources:
+      - path: PalmSliceTests
+
+    dependencies:
+      - target: PalmSlice
+
+    settings:
+      base:
+        SWIFT_VERSION: 5.9
+        GENERATE_INFOPLIST_FILE: true
+        PRODUCT_BUNDLE_IDENTIFIER: com.adickin.PalmSliceTests
+        TARGETED_DEVICE_FAMILY: "1,2"

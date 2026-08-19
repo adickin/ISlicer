@@ -5,12 +5,12 @@
 ### App Store Release Checklist
 - [ ] **TestFlight build** — first build submitted through App Store Connect / TestFlight; exercises real signing + provisioning + export path (not just local Xcode-to-device installs)
 - [ ] **App Store Connect app record** — listing, screenshots (per device class), description, category, age rating, support URL
-- [ ] **Privacy policy URL** — required by App Store Connect even though the app collects no data
-- [ ] **In-app About/Credits screen** — link to source repo + third-party license list (surfaces the AGPL-3.0 source-availability obligation already documented in `LICENSE.md`, but not currently shown to end users anywhere in the app)
-- [ ] **Fix `UIDeviceFamily` Info.plist warning** — `project.yml` sets it directly in Info.plist properties; Xcode overwrites this from `TARGETED_DEVICE_FAMILY` at build time and warns. Remove the Info.plist key, set the build setting instead.
-- [ ] **`ITSAppUsesNonExemptEncryption`** — add to Info.plist (app has no networking; setting `false` skips the export-compliance prompt on every submission)
+- [x] **Privacy policy URL** — `PRIVACY.md` added (app collects no data at all); linked from App > About & Licenses and to be pasted into App Store Connect at submission time: `https://github.com/adickin/ISlicer/blob/main/PRIVACY.md`
+- [x] **In-app About/Credits screen** — `AboutView.swift`; reachable via "About & Licenses" row in the bottom panel; links to source repo, AGPL-3.0 license, privacy policy, and the full third-party license table from `LICENSE.md`
+- [x] **Fix `UIDeviceFamily` Info.plist warning** — removed from `project.yml` Info.plist properties; `TARGETED_DEVICE_FAMILY: "1,2"` build setting added instead
+- [x] **`ITSAppUsesNonExemptEncryption`** — added to Info.plist via `project.yml` (`false`)
 - [ ] **Broaden real-device test coverage** — currently validated on iPhone 14 Pro → Ender 3 S1 with real prints; try more STL geometries/sizes to rule out crashes/memory pressure on larger meshes
-- [ ] **(optional) basic automated tests** — no XCTest target exists yet; at minimum cover `slicer_bridge` C API and profile (printer/slice/material) serialization before locking a release build
+- [x] **basic automated tests** — new `PalmSliceTests` XCTest target (hosted by `PalmSlice`, auto-attached by xcodegen); 15 tests covering profile Codable round-trips, built-in profile sanity, bridge-int enum uniqueness, and `GCodeParser` layer/extrusion-type parsing — all passing on `iphonesimulator`
 
 ### High Priority (v1 polish)
 _(none outstanding — device build confirmed working on both simulator and device SDKs, see Completed)_
