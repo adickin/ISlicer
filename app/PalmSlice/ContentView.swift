@@ -45,6 +45,10 @@ struct ContentView: View {
     @State private var showNoSliceProfileAlert = false
     @State private var showAbout = false
     @State private var showIntersectingAlert = false
+    @State private var showUnitScaleAlert = false
+    @State private var unitScaleAlertModelID: UUID? = nil
+    @State private var unitScaleAlertScale: Float = 1000
+    @State private var unitScaleAlertOriginalSizeMM: SIMD3<Float> = .zero
     @State private var showConfigWarningAlert = false
     @State private var configWarningCheck: SlicerSliceConfigCheck?
     @State private var configWarningOriginal: (walls: Int, top: Int, bottom: Int)?
@@ -246,6 +250,21 @@ struct ContentView: View {
         } message: {
             Text("Some models are intersecting. Slicing may produce unexpected results. Continue?")
         }
+        .alert("Model Seems Very Small", isPresented: $showUnitScaleAlert) {
+            Button("Scale \u{00d7}\(Int(unitScaleAlertScale))") {
+                if let id = unitScaleAlertModelID, let idx = models.firstIndex(where: { $0.id == id }) {
+                    models[idx].transform.scale = SIMD3(repeating: unitScaleAlertScale)
+                }
+            }
+            Button("Keep As Is", role: .cancel) {}
+        } message: {
+            let s = unitScaleAlertOriginalSizeMM
+            Text("""
+            This model is \(String(format: "%.3f", s.x)) \u{00d7} \(String(format: "%.3f", s.y)) \u{00d7} \(String(format: "%.3f", s.z)) mm — \
+            too small to print. STL files don't store units, so this is likely modeled in meters, not millimeters. \
+            Scale \u{00d7}\(Int(unitScaleAlertScale)) to fix it?
+            """)
+        }
         .alert("Settings May Not Print Cleanly", isPresented: $showConfigWarningAlert) {
             Button("Auto-Adjust") {
                 configDecisionContinuation?.resume(returning: .autoAdjust)
@@ -355,12 +374,29 @@ struct ContentView: View {
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(.secondary)
 
-            HStack(spacing: 6) {
-                axisField("X", color: .red,   binding: currentXBinding)
-                axisField("Y", color: .green, binding: currentYBinding)
-                axisField("Z", color: .blue,  binding: currentZBinding)
-                if !currentUnit.isEmpty {
-                    Text(currentUnit).font(.caption2).foregroundStyle(.secondary).lineLimit(1).fixedSize()
+            if gizmoMode == .scale, let info = selectedModel?.meshInfo {
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        axisField("X", color: .red,   binding: scaleXBinding, fmt: "%.3g", width: 54)
+                        axisField("Y", color: .green, binding: scaleYBinding, fmt: "%.3g", width: 54)
+                        axisField("Z", color: .blue,  binding: scaleZBinding, fmt: "%.3g", width: 54)
+                        Text("\u{d7}").font(.caption2).foregroundStyle(.secondary)
+                    }
+                    HStack(spacing: 6) {
+                        axisField("X", color: .red,   binding: sizeMMBinding(base: info.sizeMMX, scale: scaleXBinding), fmt: "%.4g", width: 54)
+                        axisField("Y", color: .green, binding: sizeMMBinding(base: info.sizeMMZ, scale: scaleYBinding), fmt: "%.4g", width: 54)
+                        axisField("Z", color: .blue,  binding: sizeMMBinding(base: info.sizeMMY, scale: scaleZBinding), fmt: "%.4g", width: 54)
+                        Text("mm").font(.caption2).foregroundStyle(.secondary).lineLimit(1).fixedSize()
+                    }
+                }
+            } else {
+                HStack(spacing: 6) {
+                    axisField("X", color: .red,   binding: currentXBinding)
+                    axisField("Y", color: .green, binding: currentYBinding)
+                    axisField("Z", color: .blue,  binding: currentZBinding)
+                    if !currentUnit.isEmpty {
+                        Text(currentUnit).font(.caption2).foregroundStyle(.secondary).lineLimit(1).fixedSize()
+                    }
                 }
             }
 
@@ -394,13 +430,25 @@ struct ContentView: View {
     }
 
     @ViewBuilder
-    private func axisField(_ label: String, color: Color, binding: Binding<Float>) -> some View {
+    private func axisField(_ label: String, color: Color, binding: Binding<Float>, fmt: String = "%.2f", width: CGFloat = 42) -> some View {
         HStack(spacing: 3) {
             Circle().fill(color).frame(width: 5, height: 5)
-            FloatField(value: binding, fmt: "%.2f")
+            FloatField(value: binding, fmt: fmt)
                 .font(.caption.monospacedDigit())
-                .frame(width: 42)
+                .frame(width: width)
         }
+    }
+
+    /// Binding for a size-in-mm quick field: setting it back-solves the scale factor via the
+    /// underlying scale binding (which already applies lock-aspect-ratio propagation).
+    private func sizeMMBinding(base: Float, scale: Binding<Float>) -> Binding<Float> {
+        Binding(
+            get: { base * scale.wrappedValue },
+            set: { newSizeMM in
+                guard base > 0, newSizeMM > 0 else { return }
+                scale.wrappedValue = newSizeMM / base
+            }
+        )
     }
 
     @ViewBuilder
@@ -956,6 +1004,13 @@ struct ContentView: View {
                         models[idx].meshInfo = info
                         models[idx].bvh      = bvh
                         updateIntersections()
+
+                        if let info, let scale = info.suspectedUnitScale {
+                            unitScaleAlertModelID = id
+                            unitScaleAlertScale = scale
+                            unitScaleAlertOriginalSizeMM = SIMD3(info.sizeMMX, info.sizeMMY, info.sizeMMZ)
+                            showUnitScaleAlert = true
+                        }
                     }
                     isParsingSTL = false
                 }

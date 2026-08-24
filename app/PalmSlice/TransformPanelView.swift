@@ -220,12 +220,23 @@ struct TransformPanelView: View {
         HStack(spacing: 8) {
             axisLabel(label: label, color: color)
             FloatField(value: binding, fmt: "%.3g")
-            if let base = baseSizeMM {
-                Text(String(format: "%.1f mm", base * binding.wrappedValue))
-                    .foregroundStyle(.secondary).font(.caption)
-                    .frame(minWidth: 62, alignment: .trailing)
+            if let base = baseSizeMM, base > 0 {
+                FloatField(value: sizeMMBinding(base: base, scale: binding), fmt: "%.3g")
+                    .frame(minWidth: 62)
+                Text("mm").foregroundStyle(.secondary).font(.caption)
             }
         }
+    }
+
+    /// Binding for the size-in-mm field: setting it back-solves the scale factor.
+    private func sizeMMBinding(base: Float, scale: Binding<Float>) -> Binding<Float> {
+        Binding(
+            get: { base * scale.wrappedValue },
+            set: { newSizeMM in
+                guard newSizeMM > 0 else { return }
+                scale.wrappedValue = newSizeMM / base
+            }
+        )
     }
 
     @ViewBuilder

@@ -8,7 +8,7 @@
 #   • All deps installed in ~/ios-sysroot-sim
 #   • Copy app/project.local.yml.example to app/project.local.yml and fill in your team ID
 
-includes:
+include:
   - path: project.local.yml
     optional: true
 

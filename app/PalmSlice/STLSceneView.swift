@@ -200,10 +200,9 @@ struct STLSceneView: UIViewRepresentable {
                         -minB.z,
                          (minB.y + maxB.y) / 2)
 
-                    let modelDiag = simd_length(SIMD3<Float>(
-                        maxB.x - minB.x, maxB.y - minB.y, maxB.z - minB.z))
                     entry.halfHeight = (maxB.z - minB.z) / 2
-                    entry.gizmoScale = max(modelDiag * 0.55, 0.06)
+                    entry.meshExtent = SIMD3<Float>(
+                        maxB.x - minB.x, maxB.y - minB.y, maxB.z - minB.z)
 
                     // Rebuild bounding box wireframe.
                     entry.bboxNode?.removeFromParentNode()
@@ -266,7 +265,12 @@ struct STLSceneView: UIViewRepresentable {
             let worldCenter = entry.pivot.convertPosition(
                 SCNVector3(0, entry.halfHeight, 0), to: nil)
             coord.gizmoContainerNode?.position = worldCenter
-            let s = entry.gizmoScale
+            // Mesh-local x/y/z extents map 1:1 onto transform.scale x/y/z (see ModelTransform's
+            // pivot-space mapping comments), so scaling each before taking the diagonal gives the
+            // model's true on-screen size — gizmo handles grow/shrink as the model is scaled.
+            let ts = entry.lastTransform.scale
+            let scaledDiag = simd_length(entry.meshExtent * SIMD3<Float>(ts.x, ts.y, ts.z))
+            let s = max(scaledDiag * 0.55, 0.06)
             coord.gizmoContainerNode?.scale = SCNVector3(s, s, s)
         }
 
@@ -608,7 +612,10 @@ final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         var lastGeometry:  SCNGeometry?
         var lastTransform: ModelTransform = .identity
         var halfHeight:    Float = 0
-        var gizmoScale:    Float = 0.3
+        /// Raw (unscaled) mesh bounding-box extents in mesh-local space (x/y/z map 1:1 to
+        /// transform.scale x/y/z — see effectiveGizmoScale). Diagonal of this * transform.scale
+        /// gives the model's current on-screen size, so the gizmo can grow/shrink with it.
+        var meshExtent:    SIMD3<Float> = SIMD3(repeating: 0.06)
     }
     var modelEntries: [UUID: ModelEntry] = [:]
 

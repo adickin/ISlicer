@@ -50,6 +50,21 @@ struct STLMeshInfo {
     var sizeMMY: Float { boundingBoxMM.max.y - boundingBoxMM.min.y }
     /// Size in the STL Z direction (mm) — maps to viewer Y (height).
     var sizeMMZ: Float { boundingBoxMM.max.z - boundingBoxMM.min.z }
+
+    /// STL has no embedded unit — every slicer treats raw coordinates as millimeters by
+    /// convention. If a file was authored in meters, its "millimeter" bounding box comes out
+    /// 1000x too small. Desktop-printable parts are essentially never under 2mm in every
+    /// dimension, so a sub-2mm max extent is a reliable (not merely plausible) signal of a
+    /// meters/millimeters mixup rather than a genuinely tiny model.
+    private static let suspectedMetersThresholdMM: Float = 2.0
+
+    /// Suggested corrective scale factor (1000) if this mesh looks like it was authored in
+    /// meters and misread as millimeters; nil if its size looks normal.
+    var suspectedUnitScale: Float? {
+        let maxDim = max(sizeMMX, max(sizeMMY, sizeMMZ))
+        guard maxDim > 0, maxDim < Self.suspectedMetersThresholdMM else { return nil }
+        return 1000
+    }
 }
 
 func parseSTLMeshInfo(url: URL) throws -> STLMeshInfo {
