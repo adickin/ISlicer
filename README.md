@@ -107,6 +107,17 @@ Single screen. One button.
 - **Share button** opens the iOS Share Sheet — AirDrop, save to Files, send anywhere
 - The app's Documents folder also appears directly in the **iOS Files app** (`UIFileSharingEnabled`)
 
+## Tested Printers
+
+Real-world print testing is ongoing. G-code produced by PalmSlice has been sliced and printed on:
+
+| Printer | Notes |
+|---------|-------|
+| Creality Ender 3 S1 | Primary test printer so far |
+
+This list will grow as more printers are tried. If you print successfully (or unsuccessfully) on
+a printer not listed here, please open an issue with the printer model and outcome.
+
 ## PrusaSlicer Modifications
 
 libslic3r is built from the unmodified PrusaSlicer source tree with two categories of changes:

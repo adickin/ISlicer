@@ -7,6 +7,7 @@ struct PalmSliceApp: App {
     @StateObject private var materialProfileStore = MaterialProfileStore()
 
 @State private var showSplash = true
+    @State private var showEULA = false
 
     var body: some Scene {
         WindowGroup {
@@ -20,6 +21,12 @@ struct PalmSliceApp: App {
                         sliceProfileStore.load()
                         materialProfileStore.load()
                     }
+                    .fullScreenCover(isPresented: $showEULA) {
+                        EULAView {
+                            UserDefaults.standard.set(true, forKey: "hasAcceptedEULA")
+                            showEULA = false
+                        }
+                    }
                 if showSplash {
                     SplashView()
                         .transition(.opacity)
@@ -29,6 +36,9 @@ struct PalmSliceApp: App {
             .task {
                 try? await Task.sleep(for: .seconds(2))
                 withAnimation(.easeOut(duration: 0.3)) { showSplash = false }
+                if !UserDefaults.standard.bool(forKey: "hasAcceptedEULA") {
+                    showEULA = true
+                }
             }
         }
     }

@@ -174,6 +174,16 @@ struct ContentView: View {
                 layerSliderView
             }
 
+            // Sits just above the collapsed panel's bottom-right corner; the
+            // expanded panel (full width, much taller) naturally draws over it
+            // since it's added to the ZStack afterward.
+            HStack {
+                Spacer()
+                infoButton
+            }
+            .padding(.trailing, 16)
+            .padding(.bottom, 140)
+
             bottomPanel
         }
         .ignoresSafeArea(edges: .top)
@@ -662,6 +672,17 @@ struct ContentView: View {
         }
     }
 
+    private var infoButton: some View {
+        Button { showAbout = true } label: {
+            Image(systemName: "info.circle")
+                .font(.title2)
+                .foregroundStyle(.secondary)
+                .padding(8)
+                .background(.ultraThinMaterial, in: Circle())
+        }
+        .buttonStyle(.plain)
+    }
+
     // MARK: - Layer slider
 
     private var layerSliderView: some View {
@@ -859,16 +880,6 @@ struct ContentView: View {
                     }
                 }
                 .disabled(isBusy)
-
-                // About / licenses row
-                Button { showAbout = true } label: {
-                    HStack {
-                        Label("About & Licenses", systemImage: "info.circle")
-                            .font(.subheadline)
-                        Spacer()
-                        Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.secondary)
-                    }
-                }
 
                 Divider()
 

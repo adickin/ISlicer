@@ -3,10 +3,11 @@
 ## To Do
 
 ### App Store Release Checklist
-- [ ] **TestFlight build** — first build submitted through App Store Connect / TestFlight; exercises real signing + provisioning + export path (not just local Xcode-to-device installs)
-- [ ] **App Store Connect app record** — listing, screenshots (per device class), description, category, age rating, support URL
+- [x] **TestFlight build** — build 1.0 (1) archived, signed (Apple Distribution cert, auto-managed), and uploaded to App Store Connect via `xcodebuild -exportArchive` with `destination: upload` (2026-09-01); real team ID is `S2S63V4EZ9` (`project.local.yml` previously had a stale `5QZ67PK66C`, now fixed)
+- [x] **App Store Connect app record** — created (bundle ID `com.adickin.PalmSlice`); screenshots/description/category/age rating/support URL still needed before public release, not required for TestFlight
 - [x] **Privacy policy URL** — `PRIVACY.md` added (app collects no data at all); linked from App > About & Licenses and to be pasted into App Store Connect at submission time: `https://github.com/adickin/ISlicer/blob/main/PRIVACY.md`
-- [x] **In-app About/Credits screen** — `AboutView.swift`; reachable via "About & Licenses" row in the bottom panel; links to source repo, AGPL-3.0 license, privacy policy, and the full third-party license table from `LICENSE.md`
+- [x] **In-app About/Credits screen** — `AboutView.swift`; reachable via a floating (i) button in the bottom-right corner (visible when the slice panel is collapsed, covered by the panel when expanded); links to source repo, AGPL-3.0 license, privacy policy, and the full third-party license table from `LICENSE.md`
+- [x] **First-launch EULA / beta disclaimer** — `EULAView.swift`; full-screen, non-dismissible cover shown once (gated on `hasAcceptedEULA` in `UserDefaults`) after the splash screen; states the app is beta software, bugs may occur, and the developer(s) aren't liable for damages; "I Understand & Accept" continues, "Decline & Quit" calls `exit(0)`
 - [x] **Fix `UIDeviceFamily` Info.plist warning** — removed from `project.yml` Info.plist properties; `TARGETED_DEVICE_FAMILY: "1,2"` build setting added instead
 - [x] **`ITSAppUsesNonExemptEncryption`** — added to Info.plist via `project.yml` (`false`)
 - [ ] **Broaden real-device test coverage** — currently validated on iPhone 14 Pro → Ender 3 S1 with real prints; try more STL geometries/sizes to rule out crashes/memory pressure on larger meshes
@@ -139,6 +140,11 @@ Plan: `Plans/slicing_profiles.md`
 - [x] `ArrangeHelper_ios_stub.cpp` — satisfies linker without Z3
 - [x] `Thumbnails_ios_stub.cpp` — satisfies linker without JPEG
 - [x] Stub `seq_interface.hpp` header in sysroot (Sequential types, no Z3)
+
+### App (2026-09-12)
+- [x] **First-launch EULA** — `EULAView.swift`; beta-software / no-liability disclaimer, shown once via `hasAcceptedEULA` UserDefaults flag; Accept continues, Decline exits the app
+- [x] **About & Licenses moved to floating (i) button** — bottom-right corner, above the collapsed slice panel; expanded panel overlaps it naturally (same z-order as the rest of the bottom panel)
+- [x] **README "Tested Printers" section** — lists real-world print validation; Ender 3 S1 so far
 
 ### App
 - [x] SwiftUI single-screen UI
