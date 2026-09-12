@@ -742,6 +742,24 @@ struct ContentView: View {
         .shadow(color: .black.opacity(0.15), radius: 12, y: -4)
     }
 
+    /// Filename stem PalmSlice will use when the output filename field is left blank —
+    /// the sole model's name, or "multimodel_N" for multiple models.
+    private func autoOutputStem(for models: [PlacedModel]) -> String {
+        if models.count == 1 {
+            return URL(fileURLWithPath: models[0].url.path).deletingPathExtension().lastPathComponent
+        }
+        return "multimodel_\(models.count)"
+    }
+
+    /// Live preview of the exact .gcode filename that will be saved if the
+    /// output filename field is left blank. Shown as the field's placeholder.
+    private var autoOutputFileName: String {
+        guard !models.isEmpty, let profile = sliceProfileStore.selectedProfile else {
+            return "Output filename (auto)"
+        }
+        return String(format: "%@_%.2fmm_%d.gcode", autoOutputStem(for: models), profile.layerHeight, profile.infillDensity)
+    }
+
     private var panelModelSummary: String {
         switch models.count {
         case 0: return "No models loaded"
@@ -828,7 +846,7 @@ struct ContentView: View {
                     Image(systemName: "doc.badge.gearshape")
                         .foregroundStyle(.secondary)
                         .font(.subheadline)
-                    TextField("Output filename (auto)", text: $exportFileName)
+                    TextField(autoOutputFileName, text: $exportFileName)
                         .font(.subheadline)
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
@@ -1074,10 +1092,8 @@ struct ContentView: View {
         let stem: String
         if !customName.isEmpty {
             stem = customName.hasSuffix(".gcode") ? String(customName.dropLast(6)) : customName
-        } else if snapshotModels.count == 1 {
-            stem = URL(fileURLWithPath: snapshotModels[0].url.path).deletingPathExtension().lastPathComponent
         } else {
-            stem = "multimodel_\(snapshotModels.count)"
+            stem = await MainActor.run(body: { autoOutputStem(for: snapshotModels) })
         }
         let outName = String(format: "%@_%.2fmm_%d.gcode",
                              stem, sliceProfile.layerHeight, sliceProfile.infillDensity)
