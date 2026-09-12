@@ -6,7 +6,7 @@ Guidelines and context for AI-assisted development on this project.
 
 iOS on-device 3D printing slicer. Embeds libslic3r (PrusaSlicer's C++ core) as a static library, wrapped by a thin C bridge, consumed by a SwiftUI app. No cloud, no network, all slicing runs on-device.
 
-This project is entirely AI-written. See README.md for architecture and PROGRESS.md for feature status.
+This project is entirely AI-written. See README.md for the app overview, BUILDING.md for build instructions, PROGRESS.md for feature status, and CHANGELOG.md for change history.
 
 ## Key Paths
 
@@ -16,6 +16,8 @@ This project is entirely AI-written. See README.md for architecture and PROGRESS
 | `~/ios-sources/PrusaSlicer/` | Full PrusaSlicer tree — libslic3r lives at `src/libslic3r/` |
 | `scripts/common.sh` | Shared env vars — read this before touching any build script |
 | `app/project.yml` | xcodegen spec — source of truth for Xcode build settings |
+| `BUILDING.md` | Full build steps, prerequisites, and Xcode setup |
+| `CHANGELOG.md` | Change history — see Workflow below for when to update it |
 
 ## Build System
 
@@ -23,7 +25,7 @@ This project is entirely AI-written. See README.md for architecture and PROGRESS
 - To force a rebuild of a step, delete its sentinel and re-run. E.g.: `rm ~/ios-sysroot-sim/lib/libslic3r.a && bash scripts/10_libslic3r.sh`
 - After any change to `app/project.yml` run `xcodegen` from the `app/` directory before building in Xcode.
 - After any change to libslic3r or its deps, re-run `scripts/11_xcframework.sh` to update the XCFramework headers.
-- Current target: **SIMULATORARM64** (iPhone Simulator on Apple Silicon). Device build (`PLATFORM=OS64`) is not yet done.
+- Primary target: **SIMULATORARM64** (iPhone Simulator on Apple Silicon), via `build.sh`. Device build (`PLATFORM=OS64`) also works, via `build_device.sh` → `~/ios-sysroot-dev`.
 
 ## C Bridge (`app/PalmSlice/slicer_bridge.h/.cpp`)
 
@@ -56,3 +58,7 @@ When adding new slicing features (supports, brim, printer profiles, etc.), add p
 - **No shared libraries** anywhere in the dep chain. iOS prohibits loading dynamic libraries at runtime (outside of system frameworks).
 - **No bitcode** (`ENABLE_BITCODE: NO`) — deprecated in Xcode 14 and incompatible with our cross-compiled static libs.
 - C++ standard is **C++17** throughout. Match this in any new files.
+
+## Workflow
+
+- **Always update `CHANGELOG.md` when committing.** Add an entry (dated, most-recent-first) for any user-visible change, build-chain change, or notable fix included in the commit. Don't skip this even for small commits.
