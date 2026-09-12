@@ -145,6 +145,7 @@ Plan: `Plans/slicing_profiles.md`
 - [x] **First-launch EULA** — `EULAView.swift`; beta-software / no-liability disclaimer, shown once via `hasAcceptedEULA` UserDefaults flag; Accept continues, Decline exits the app
 - [x] **About & Licenses moved to floating (i) button** — bottom-right corner, above the collapsed slice panel; expanded panel overlaps it naturally (same z-order as the rest of the bottom panel)
 - [x] **README "Tested Printers" section** — lists real-world print validation; Ender 3 S1 so far
+- [x] **Live output filename preview** — output filename field's placeholder shows the exact `.gcode` name that will be saved (model name + layer height + infill %) instead of a generic "(auto)" label; stem-naming logic shared between the preview and the actual save path via `autoOutputStem()` so they can't drift
 
 ### App
 - [x] SwiftUI single-screen UI
