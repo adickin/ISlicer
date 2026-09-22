@@ -37,9 +37,38 @@ final class ProfileStore: ObservableObject {
             save()
         }
 
+        if mergeInMissingBuiltIns() {
+            save()
+        }
+
         if selectedProfileId == nil || !profiles.contains(where: { $0.id == selectedProfileId }) {
             selectedProfileId = profiles.first?.id
         }
+    }
+
+    // Adds any BuiltInProfiles template not already present, so a user who
+    // already has a saved printer_profiles.json (and may have customized
+    // their existing profiles) still picks up newly-added built-ins on
+    // their next app update instead of only new installs seeing them.
+    // Matches by builtInKey when set; older saved profiles predate that
+    // field, so those fall back to matching by name to avoid duplicating
+    // a built-in the user already has.
+    @discardableResult
+    private func mergeInMissingBuiltIns() -> Bool {
+        var added = false
+        for template in BuiltInProfiles.all {
+            let alreadyPresent = profiles.contains { existing in
+                if let key = template.builtInKey {
+                    if existing.builtInKey == key { return true }
+                }
+                return existing.builtInKey == nil && existing.name == template.name
+            }
+            if !alreadyPresent {
+                profiles.append(template)
+                added = true
+            }
+        }
+        return added
     }
 
     func save() {

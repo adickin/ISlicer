@@ -4,6 +4,9 @@ All notable changes to PalmSlice, harvested from [PROGRESS.md](PROGRESS.md) and 
 
 ## 2026-09-12
 
+- Printer profile library expanded with 6 profiles imported from PrusaSlicer's bundled vendor library (Prusa i3 MK3S+, Prusa MINI+, Creality Ender-3 V2, Creality CR-10, Anycubic i3 Mega, Artillery Sidewinder X1) — bed size, max print height, G-code flavor, and start/end G-code pulled from the actual PrusaSlicer `.ini` profiles
+- Printer picker now splits profiles into "Verified" (tested on real hardware — Ender 3 S1 only) and "Untested" sections; selecting an untested profile shows a warning alert before it becomes active. Profiles can be promoted/demoted between sections by dragging, a leading swipe action, or a context menu
+- `ProfileStore` now merges newly-added built-in profiles into an existing user's saved profile list on load instead of only seeding them on first install, without touching profiles the user has already customized
 - Live output filename preview — the output filename field's placeholder shows the exact `.gcode` name that will be saved (model name + layer height + infill %) instead of a generic "(auto)" label; naming logic shared between the preview and the actual save path via `autoOutputStem()`
 - First-launch EULA — beta-software / no-liability disclaimer shown once via `hasAcceptedEULA`; Accept continues, Decline exits the app
 - About & Licenses moved to a floating (i) button in the bottom-right corner, above the collapsed slice panel
