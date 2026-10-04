@@ -6,9 +6,10 @@ All notable changes to PalmSlice, harvested from [PROGRESS.md](PROGRESS.md) and 
 
 - New app icon (pickup truck on a printer bed, replacing the boat) — also applied to the launch/splash image and `images/PalmSliceAppIcon.PNG` — cut out of its white rounded-square backing and filled to full-bleed 1024×1024 like the previous icon
 - Slice and Export are now separate steps: **Slice** writes G-code to a temp file and automatically opens the layer preview; **Export G-code** (shown after a slice completes, in both the collapsed bar and expanded panel) copies it to Documents and opens the share sheet. Button reads **Re-slice** once a slice exists
-- 8 more untested printer profiles imported from PrusaSlicer's vendor library: Creality Ender-3, Ender-3 S1 (PrusaSlicer vendor version, alongside the hand-authored verified one), Ender-5, Prusa MK4, Elegoo Neptune-3 Pro, Sovol SV06, Voron 2.4 350, Ultimaker S5/S7
-- Added `PrinterProfileSliceTests`, which slices a sample model with every built-in printer profile; all 15 pass. It exposed an empty `M862.3 P ""` model check in the Prusa profiles (the bridge doesn't set `printer_model`), so MK3S+, MINI+ and MK4 now hardcode their model name
+- 8 more untested printer profiles imported from PrusaSlicer's vendor library: Creality Ender-3, Ender-3 S1 (PrusaSlicer vendor version, alongside the hand-authored verified one), Ender-5, Prusa MK4, Elegoo Neptune-3 Pro, Sovol SV06, Voron 2.4 350
+- Added `PrinterProfileSliceTests`, which slices a sample model with every built-in printer profile; all 14 pass. It exposed an empty `M862.3 P ""` model check in the Prusa profiles (the bridge doesn't set `printer_model`), so MK3S+, MINI+ and MK4 now hardcode their model name
 - Fixed generated G-code filenames (and the live filename preview) including the imported STL's temp-copy UUID prefix; they now use the model's original name
+- Privacy manifest now declares `UserDefaults` (reason `CA92.1`); build number bumped to 2; `APP_STORE_LISTING.md` added with draft App Store Connect copy
 
 ## 2026-09-12
 

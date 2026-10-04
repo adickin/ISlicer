@@ -10,6 +10,11 @@
 - [x] **First-launch EULA / beta disclaimer** — `EULAView.swift`; full-screen, non-dismissible cover shown once (gated on `hasAcceptedEULA` in `UserDefaults`) after the splash screen; states the app is beta software, bugs may occur, and the developer(s) aren't liable for damages; "I Understand & Accept" continues, "Decline & Quit" calls `exit(0)`
 - [x] **Fix `UIDeviceFamily` Info.plist warning** — removed from `project.yml` Info.plist properties; `TARGETED_DEVICE_FAMILY: "1,2"` build setting added instead
 - [x] **`ITSAppUsesNonExemptEncryption`** — added to Info.plist via `project.yml` (`false`)
+- [x] **Privacy manifest `UserDefaults` declaration** — `NSPrivacyAccessedAPICategoryUserDefaults` / `CA92.1` added to `PrivacyInfo.xcprivacy` (2026-10-04)
+- [x] **Build number bumped to 2** — `CFBundleVersion: "2"` in `project.yml` (1.0 (1) already uploaded)
+- [x] **App Store listing copy drafted** — `APP_STORE_LISTING.md` (name, subtitle, description, keywords, category, age rating, review notes). Screenshots still need to be captured manually
+- [ ] **App Store screenshots** — required size 6.9"; suggested shot list in `APP_STORE_LISTING.md`
+- [ ] **Upload build 1.0 (2)** — archive + `exportArchive` per the 2026-09-01 TestFlight notes
 - [ ] **Broaden real-device test coverage** — currently validated on iPhone 14 Pro → Ender 3 S1 with real prints; try more STL geometries/sizes to rule out crashes/memory pressure on larger meshes
 - [x] **basic automated tests** — new `PalmSliceTests` XCTest target (hosted by `PalmSlice`, auto-attached by xcodegen); 15 tests covering profile Codable round-trips, built-in profile sanity, bridge-int enum uniqueness, and `GCodeParser` layer/extrusion-type parsing — all passing on `iphonesimulator`
 
@@ -31,7 +36,9 @@ Plan: `Plans/model_manipulation.md`
 - [x] **Snap-to-face** — "Lay Flat" button in rotate section; picks largest downward-facing face via `STLMeshInfo` normals + area weighting; converts to SceneKit Euler angles via quaternion (2026-04-17)
 - [x] **Fit to bed / Center / Drop to bed** — helper buttons in Move and Scale sections; "Fit to Bed" scales to 90% of bed footprint (2026-04-17)
 - [x] **Interactive 3D translate gizmo** — world-aligned X/Y/Z arrows follow model; tap "Move" overlay button to enter transform mode (disables orbit); drag an arrow to translate along that axis; gizmo scales with model; "Orbit" button returns to camera control (2026-04-18)
-- [ ] Remaining phases (Auto-orient, Cut tool, Multi-model) — see `FUTURE_FEATURES.md`
+- [x] **Multi-model** — `PlacedModel` list, per-model transforms/selection, `ModelListView`, multi-object slicing (2026-04-22); precise BVH mesh-collision (`TriangleBVH`, `PreciseIntersectionChecker`) with debounced red-highlight feedback and bed-footprint checks (2026-05-10)
+- [x] **Type-in scale sizing + unit-mismatch detection** — mm-per-axis entry back-solves scale; sub-2 mm imports offered a one-tap ×1000 fix (2026-08-23)
+- [ ] Remaining phases (Auto-orient, Cut tool) — see `FUTURE_FEATURES.md`
 
 ### Infrastructure
 - [x] **Proper bundleId** — `com.adickin.PalmSlice` via `bundleIdPrefix` in `project.yml` + `project.local.yml` (team ID set)
@@ -43,6 +50,15 @@ Plan: `Plans/model_manipulation.md`
 _(moved to `FUTURE_FEATURES.md`)_
 
 ## Completed
+
+### Slice / Export, Icon, Profiles (2026-10-04)
+- [x] **Split Slice and Export** — Slice writes G-code to the temp directory and opens the layer preview automatically; **Export G-code** (collapsed bar + expanded panel) copies it to Documents and presents the share sheet. Slice button becomes "Re-slice" once a slice exists
+- [x] **New app icon** (pickup truck) — cut out of its white backing, corners filled, full-bleed 1024×1024, no alpha; also applied to `LaunchImage@1x/2x/3x` and `images/PalmSliceAppIcon.PNG`
+- [x] **8 more built-in printer profiles** (all Untested) — Creality Ender-3, Ender-3 S1 (PrusaSlicer vendor), Ender-5, Prusa MK4, Elegoo Neptune-3 Pro, Sovol SV06, Voron 2.4 350; Prusa profiles hardcode their `M862.3` model name since the bridge doesn't set `printer_model`
+- [x] **`PrinterProfileSliceTests`** — slices a sample STL with every built-in printer profile (skipped if the sample STL isn't on disk)
+- [x] **Fix UUID in generated filenames** — output name now derives from the model's original name, not the temp-copy URL
+- [x] **Layer slider text field** — type a layer number instead of dragging; slider restyled as a material card
+- [x] **Thick-wall print-quality controls** (2026-08-05) — thickness-first top/bottom shells with pre-slice sanity check, solid/top-solid infill speeds, ironing, support interface controls, infill overlap; "Thick Walls (0.2 mm)" built-in slice profile
 
 ### Viewer (2026-04-15)
 Plan: `Plans/viewer_features.md`

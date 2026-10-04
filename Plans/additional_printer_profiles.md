@@ -22,7 +22,6 @@ for the current built-ins.
 | Elegoo Neptune-3 Pro | Untested | `Elegoo.ini` |
 | Sovol SV06 | Untested | `Sovol.ini` |
 | Voron 2.4 350 | Untested | `Voron.ini` |
-| Ultimaker S5/S7 | Untested | `Ultimaker.ini` |
 
 All six imported profiles seed with `verified = false` (`PrinterProfile.verified`)
 and appear in the picker's "Untested" section — see `ProfilePickerView.swift`.
@@ -143,7 +142,7 @@ not yet in the app:
 - Elegoo Neptune-3 Pro (popular budget printer, different bed-leveling story than Creality)
 - Sovol SV06
 - Voron v2 350 (0.4mm, standard — most common build size; note DIY-kit caveat above)
-- Ultimaker S5/S7 (enterprise/education segment, different G-code flavor conventions worth having for variety)
+- Ultimaker S5/S7 — deferred until multi-extruder is supported (see `FUTURE_FEATURES.md`)
 
 ## How to pull one in
 

@@ -57,34 +57,16 @@ Full plan: `Plans/model_manipulation.md`. Remaining phases:
   candidate rotations by overhang.
 - **Cut tool** (Phase 7) — Z-height slider + live cut-plane preview;
   new `slicer_cut_at_z` C bridge call.
-- **Multi-model** (Phase 8) — load/place/slice multiple STLs at once,
-  with per-model transforms and intersection highlighting. Detailed
-  step-by-step plan: `Plans/multi-model.md`.
 
 ## STL Import
 
-- **STL Unit Detection** — the STL format has no unit metadata, so a model
-  exported in inches or metres loads at the wrong physical size (e.g. a
-  60&nbsp;mm model exported in inches appears as 1524&nbsp;mm wide).
-  Approach: heuristic detection based on bounding-box size, followed by a
-  user confirmation dialog.
-
-  | Max extent (raw units) | Likely unit | Suggested scale |
-  |------------------------|-------------|-----------------|
-  | < 1.0                  | Metres      | ×1000           |
-  | 1 – 500                | mm          | ×1 (no change)  |
-  | 500 – 25400            | Inches      | ×25.4           |
-  | > 25400                | Unknown     | Ask user        |
-
-  If the detected unit is not mm, show an alert after import:
-  > "This model's largest dimension is X units. Did you export in inches or
-  > metres?" — [Keep as mm] [Scale from inches] [Scale from metres]
-
-  Caveats: ranges overlap (a 500&nbsp;mm part and a 20" part are both
-  plausible), so only trigger the dialog when the size is clearly outside
-  the normal mm printing range (< 1&nbsp;mm or > 500&nbsp;mm largest axis).
-  The scale correction should update both the visual geometry and the STL
-  passed to the slicer (or apply a scale transform in the bridge).
+- **STL unit detection (inches)** — the metres case is done (sub-2 mm
+  imports offer a one-tap ×1000 fix, 2026-08-23). Still open: detecting
+  inch-exported models. A 60 mm model exported in inches appears as
+  1524 mm wide. Heuristic: if the largest axis is clearly outside the normal
+  printing range (> 500 mm), offer [Keep as mm] / [Scale from inches ×25.4].
+  Ranges overlap with legitimately large parts, so only prompt when the size
+  is far outside the bed.
 
 - **Direct import from model hubs** — pass a Thingiverse (or other model
   hub) URL; the app downloads the zip and auto-slices its contents. Far-future,
@@ -98,3 +80,19 @@ Full plan: `Plans/model_manipulation.md`. Remaining phases:
 - **Broader TestFlight distribution** — currently uploaded for internal
   testing (see `PROGRESS.md`); expanding to an external tester group is
   still open.
+
+## Release / Testing
+
+- **Verify untested printer profiles on real hardware** — 13 of 14 built-ins
+  are unverified; promote each to Verified only after a real print.
+- **Printer-model placeholders** — `printer_model` / `printer_settings_id`
+  aren't set by the bridge, so vendor start G-code that references them
+  renders empty (worked around for Prusa by hardcoding). Consider exposing
+  them in `SlicerPrinterConfig`.
+- **Ultimaker S5/S7 (dual extruder)** — deliberately not included yet. Needs
+  the multi-extruder bridge plus its Griffin-header start G-code (importing
+  extruder 0 only logs a non-fatal "invalid toolchange (T1)"). Re-import from
+  `Ultimaker.ini` once multi-extruder is supported.
+- **Refresh seeded built-ins on update** — `mergeInMissingBuiltIns` only adds
+  new profiles; saved copies of existing built-ins (e.g. MK3S+/MINI+) keep
+  stale G-code. A per-profile "reset to built-in" would fix this too.
