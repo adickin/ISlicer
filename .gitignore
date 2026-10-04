@@ -29,3 +29,6 @@ app/build/*
 *.swp
 *.swo
 app/project.local.yml
+
+# Claude Code local settings (machine-specific paths/permissions)
+.claude/settings.local.json

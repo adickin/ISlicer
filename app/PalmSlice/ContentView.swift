@@ -36,6 +36,8 @@ struct ContentView: View {
 
     @State private var state: SliceState = .idle
     @State private var showShareSheet = false
+    /// Documents-folder copy of the sliced G-code, set once the user taps Export.
+    @State private var exportedURL: URL? = nil
     @State private var showFilePicker = false
     @State private var showErrorAlert = false
     @State private var showProfilePicker = false
@@ -206,7 +208,7 @@ struct ContentView: View {
             DocumentPickerView { url in importSTL(from: url) }
         }
         .sheet(isPresented: $showShareSheet) {
-            if case .done(let url, _, _) = state {
+            if let url = exportedURL {
                 ShareSheetView(items: [url]).ignoresSafeArea()
             }
         }
@@ -686,13 +688,14 @@ struct ContentView: View {
     // MARK: - Layer slider
 
     private var layerSliderView: some View {
-        VStack(spacing: 6) {
-            Text("Layer \(currentLayerIndex + 1) of \(parsedLayers.count)")
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .background(.black.opacity(0.55), in: Capsule())
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 4) {
+                Text("Layer")
+                LayerIndexField(layerIndex: $currentLayerIndex, layerCount: parsedLayers.count)
+                Text("of \(parsedLayers.count)")
+            }
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.secondary)
 
             Slider(
                 value: Binding(
@@ -702,10 +705,14 @@ struct ContentView: View {
                 in: 0...Double(max(0, parsedLayers.count - 1)),
                 step: 1
             )
-            .tint(.white)
-            .padding(.horizontal, 20)
         }
-        .padding(.bottom, 8)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .padding(.leading, 16)
+        .padding(.trailing, 72)
+        .padding(.top, 60)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     // MARK: - Bottom Panel
@@ -746,7 +753,8 @@ struct ContentView: View {
     /// the sole model's name, or "multimodel_N" for multiple models.
     private func autoOutputStem(for models: [PlacedModel]) -> String {
         if models.count == 1 {
-            return URL(fileURLWithPath: models[0].url.path).deletingPathExtension().lastPathComponent
+            // Use the original name, not the temp copy's URL (which is prefixed with a UUID).
+            return URL(fileURLWithPath: models[0].name).deletingPathExtension().lastPathComponent
         }
         return "multimodel_\(models.count)"
     }
@@ -792,12 +800,23 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
             } else {
+                if case .done = state {
+                    Button {
+                        exportGCode()
+                    } label: {
+                        Label("Export", systemImage: "square.and.arrow.up")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                }
                 Button {
                     triggerSlice()
                 } label: {
-                    Label("Slice", systemImage: "slider.horizontal.3")
+                    Label(isSliced ? "Re-slice" : "Slice", systemImage: "slider.horizontal.3")
                         .font(.subheadline.weight(.semibold))
                 }
+                .tint(isSliced ? .gray : .accentColor)
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
                 .disabled(isBusy)
@@ -941,7 +960,7 @@ struct ContentView: View {
         case .idle:               return "Ready to slice."
         case .slicing(let p, _): return p
         case .done(let url, let time, let filament):
-            var msg = "Done! \(url.lastPathComponent)"
+            var msg = "Sliced: \(url.lastPathComponent)\nReview the preview, then tap Export."
             if let t = time { msg += "\nTime: \(t)" }
             if let f = filament { msg += "\nFilament: \(f) g" }
             return msg
@@ -955,7 +974,7 @@ struct ContentView: View {
             Button {
                 triggerSlice()
             } label: {
-                Label("Slice & Export G-code", systemImage: "slider.horizontal.3")
+                Label(isSliced ? "Re-slice" : "Slice", systemImage: "slider.horizontal.3")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
@@ -973,16 +992,40 @@ struct ContentView: View {
                 .controlSize(.large)
             }
 
-            if case .done(let url, _, _) = state {
+            if case .done = state {
                 Button {
-                    showShareSheet = true
+                    exportGCode()
                 } label: {
-                    Label("Share / Open in Files", systemImage: "square.and.arrow.up")
+                    Label("Export G-code", systemImage: "square.and.arrow.up")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.large)
             }
+        }
+    }
+
+    private var isSliced: Bool {
+        if case .done = state { return true }
+        return false
+    }
+
+    /// Copies the previewed slice from the temp folder into Documents (visible in
+    /// Files) and presents the share sheet. Slicing alone never writes to Documents.
+    private func exportGCode() {
+        guard case .done(let tempURL, _, _) = state else { return }
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let dest = docs.appendingPathComponent(tempURL.lastPathComponent)
+        do {
+            if FileManager.default.fileExists(atPath: dest.path) {
+                try FileManager.default.removeItem(at: dest)
+            }
+            try FileManager.default.copyItem(at: tempURL, to: dest)
+            exportedURL = dest
+            showShareSheet = true
+        } catch {
+            state = .failed(message: "Could not export G-code: \(error.localizedDescription)")
+            showErrorAlert = true
         }
     }
 
@@ -1086,8 +1129,8 @@ struct ContentView: View {
         // 2. Snapshot models on main thread
         let snapshotModels = await MainActor.run(body: { models })
 
-        // 3. Output path in Documents
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        // 3. Output path in the temp folder — copied to Documents only on Export
+        let docs = FileManager.default.temporaryDirectory
         let customName = await MainActor.run(body: { exportFileName.trimmingCharacters(in: .whitespaces) })
         let stem: String
         if !customName.isEmpty {
@@ -1245,8 +1288,8 @@ struct ContentView: View {
             return
         }
 
-        // 10. Export G-code
-        await setPhase("Exporting G-code…", progress: 0.95)
+        // 10. Write G-code (to temp; the user exports after previewing)
+        await setPhase("Generating G-code…", progress: 0.95)
         if slicer_export_gcode(handle, gcodeURL.path) != 0 {
             let msg = String(cString: slicer_last_error(handle))
             await MainActor.run { state = .failed(message: msg) ; showErrorAlert = true }
@@ -1260,9 +1303,10 @@ struct ContentView: View {
 
         await MainActor.run {
             state = .done(gcodeURL: gcodeURL, printTime: printTime, filamentG: filamentG)
+            exportedURL = nil
             parsedLayers = layers
             currentLayerIndex = max(0, layers.count - 1)
-            showLayerPreview = false
+            showLayerPreview = !layers.isEmpty
         }
     }
 
@@ -1380,6 +1424,43 @@ struct ContentView: View {
                 return slicer_apply_printer_config(handle, &cfg) == 0
             }
         }
+    }
+}
+
+// MARK: - Layer Index Field
+
+/// Text-entry companion to the layer slider; shows/edits a 1-based layer number.
+struct LayerIndexField: View {
+    @Binding var layerIndex: Int
+    let layerCount: Int
+
+    @State private var text = ""
+    @State private var editing = false
+
+    var body: some View {
+        TextField("", text: $text) { isEditing in
+            editing = isEditing
+            if isEditing {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
+                    UIApplication.shared.sendAction(
+                        #selector(UIResponder.selectAll(_:)), to: nil, from: nil, for: nil)
+                }
+            } else { commit() }
+        }
+        .keyboardType(.numberPad)
+        .multilineTextAlignment(.center)
+        .frame(width: 34)
+        .onAppear { text = render(layerIndex) }
+        .onChange(of: layerIndex) { v in if !editing { text = render(v) } }
+    }
+
+    private func render(_ index: Int) -> String { String(index + 1) }
+
+    private func commit() {
+        if let n = Int(text) {
+            layerIndex = min(max(n - 1, 0), max(0, layerCount - 1))
+        }
+        text = render(layerIndex)
     }
 }
 

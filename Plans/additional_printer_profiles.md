@@ -17,6 +17,12 @@ for the current built-ins.
 | Creality CR-10 | Untested | `Creality.ini` |
 | Anycubic i3 Mega | Untested | `Anycubic.ini` |
 | Artillery Sidewinder X1 | Untested | `Artillery.ini` |
+| Creality Ender-3, Ender-3 S1 (vendor), Ender-5 | Untested | `Creality.ini` |
+| Prusa MK4 | Untested | `PrusaResearch.ini` |
+| Elegoo Neptune-3 Pro | Untested | `Elegoo.ini` |
+| Sovol SV06 | Untested | `Sovol.ini` |
+| Voron 2.4 350 | Untested | `Voron.ini` |
+| Ultimaker S5/S7 | Untested | `Ultimaker.ini` |
 
 All six imported profiles seed with `verified = false` (`PrinterProfile.verified`)
 and appear in the picker's "Untested" section — see `ProfilePickerView.swift`.

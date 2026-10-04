@@ -20,16 +20,10 @@ _(none outstanding — device build confirmed working on both simulator and devi
 _(all items complete — see Plans/viewer_features.md)_
 
 ### Printer Profiles
-- [ ] **Additional built-in profiles** — Prusa MK4, Bambu X1C, Voron 2.4
-- [ ] **Multi-extruder bridge** — `SlicerPrinterConfig` currently only passes extruder 0; extend to pass per-extruder arrays for nozzle/filament diameter and offsets
-- [ ] **Reset profile to default** — "Reset to built-in defaults" button in profile editor for built-in profiles
+_(planned additions moved to `FUTURE_FEATURES.md`)_
 
 ### Slicing Profiles
-- [ ] **Additional speed settings** — outer perimeter speed, small perimeter speed, bridge speed, top solid infill speed (currently only the 4 main speeds are exposed; all others use PrusaSlicer defaults)
-- [ ] **Reset profile to default** — "Reset to built-in defaults" button for built-in slice profiles (Draft / Standard / Fine)
-- [ ] **Seam position** — aligned / nearest / random (`seam_position` key)
-- [ ] **Extrusion width overrides** — per-feature extrusion width (perimeter, infill, top solid) for fine-tuning on non-standard nozzle sizes
-
+_(planned additions moved to `FUTURE_FEATURES.md`)_
 
 ### Model Manipulation
 Plan: `Plans/model_manipulation.md`
@@ -37,22 +31,16 @@ Plan: `Plans/model_manipulation.md`
 - [x] **Snap-to-face** — "Lay Flat" button in rotate section; picks largest downward-facing face via `STLMeshInfo` normals + area weighting; converts to SceneKit Euler angles via quaternion (2026-04-17)
 - [x] **Fit to bed / Center / Drop to bed** — helper buttons in Move and Scale sections; "Fit to Bed" scales to 90% of bed footprint (2026-04-17)
 - [x] **Interactive 3D translate gizmo** — world-aligned X/Y/Z arrows follow model; tap "Move" overlay button to enter transform mode (disables orbit); drag an arrow to translate along that axis; gizmo scales with model; "Orbit" button returns to camera control (2026-04-18)
-- [ ] **Auto-orient** — rotate to minimize support area; scores candidate rotations by overhang (Phase 6)
-- [ ] **Cut tool** — Z-height slider + live cut-plane preview; `slicer_cut_at_z` C bridge call (Phase 7)
-- [ ] **Multi-model** — `[ModelInstance]` state, add/remove/select models, auto-arrange on bed (Phase 8)
+- [ ] Remaining phases (Auto-orient, Cut tool, Multi-model) — see `FUTURE_FEATURES.md`
 
 ### Infrastructure
 - [x] **Proper bundleId** — `com.adickin.PalmSlice` via `bundleIdPrefix` in `project.yml` + `project.local.yml` (team ID set)
 - [x] **App icon + launch screen**
-- [ ] **iPad layout** — split-view with settings panel
-- [ ] **Haptic feedback** on slice complete
-- [ ] **iCloud Drive sync** for profiles and recent files
-- [ ] **TestFlight distribution**
+- [ ] Remaining infrastructure items (iPad layout, haptics, iCloud sync, broader TestFlight distribution) — see `FUTURE_FEATURES.md`
 
 ## Far future
 
-- [ ] direct from thingverse or other model hubs to sliced gcode.  i want it just pass the url, app downloads the zip and auto slices everything.
-- 
+_(moved to `FUTURE_FEATURES.md`)_
 
 ## Completed
 
